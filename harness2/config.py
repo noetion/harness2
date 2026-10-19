@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parent
@@ -89,6 +92,13 @@ def require(name: str, *, needed_by: str) -> str:
 
 
 RUNS = Path(env("HARNESS2_RUNS_DIR", ROOT / "runs")).expanduser().resolve()
+# Per-rollout workspaces for CLI-agent substrates. The default lives in the system temp
+# directory, outside any git checkout, so an agent that walks up to a project root finds none.
+SCRATCH = (
+    Path(env("HARNESS2_SCRATCH", Path(tempfile.gettempdir()) / "harness2-scratch"))
+    .expanduser()
+    .resolve()
+)
 VERTEX_PROJECT = env("GOOGLE_CLOUD_PROJECT", env("HARNESS2_VERTEX_PROJECT", ""))
 VERTEX_REGION = env("GOOGLE_CLOUD_LOCATION", "global")
 if VERTEX_PROJECT:
@@ -98,6 +108,9 @@ os.environ.setdefault("GOOGLE_CLOUD_LOCATION", VERTEX_REGION)
 
 SOLVER_MODEL_OC = env("HARNESS2_SOLVER_MODEL", "")
 SOLVER_MODEL_CX = env("HARNESS2_CODEX_MODEL", SOLVER_MODEL_OC.split("/", 1)[-1])
+SOLVER_MODEL_PI = env("HARNESS2_PI_MODEL", SOLVER_MODEL_OC)
+SOLVER_MODEL_DSH = env("HARNESS2_DSH_MODEL", SOLVER_MODEL_OC)
+SOLVER_EFFORT = env("HARNESS2_SOLVER_EFFORT", "high")
 IMPROVER_MODEL = env("HARNESS2_IMPROVER_MODEL", SOLVER_MODEL_OC)
 JUDGE_MODEL = env("HARNESS2_JUDGE_MODEL", "")
 
@@ -152,6 +165,31 @@ VERTEX_OPENAI_URL = (
 JB_JUDGE_API_BASE = env("HARNESS2_JUDGE_BASE_URL", VERTEX_OPENAI_URL if VERTEX_PROJECT else "")
 JB_JUDGE_API_KEY = env("HARNESS2_JUDGE_API_KEY", "")
 JB_JUDGE_REASONING_EFFORT = "low"
+
+
+# One judge session per process, so a gateway that routes on the header sees a stable shard.
+_JUDGE_SESSION = f"harness2-judge-{uuid.uuid4()}"
+
+
+def judge_headers(api_base: str) -> dict[str, str]:
+    """Extra HTTP headers for an OpenAI-compatible judge endpoint.
+
+    HARNESS2_JUDGE_HEADERS takes a JSON object. OpenCode's gateway routes on an
+    `x-opencode-session` header and rejects requests without one, so a judge pointed at it
+    gets one session id per process unless the variable already sets it.
+    """
+    raw = env("HARNESS2_JUDGE_HEADERS", "")
+    try:
+        headers = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"HARNESS2_JUDGE_HEADERS must be a JSON object: {exc}") from exc
+    if not isinstance(headers, dict) or not all(isinstance(v, str) for v in headers.values()):
+        raise ConfigError("HARNESS2_JUDGE_HEADERS must be a JSON object of string values")
+    if "opencode.ai" in api_base and "x-opencode-session" not in headers:
+        headers["x-opencode-session"] = _JUDGE_SESSION
+    return headers
+
+
 JB_REPORTING_JUDGE_DETAILS = ""
 JB_OBS_TRUNC = 50000
 
@@ -171,18 +209,48 @@ WB_MAX_JOBS = {"oc": 1, "cx": 1}
 WB_MAX_TRIALS = {"oc": 2, "cx": 2}
 WB_MODEL_CONNECTION = "local_proxy"
 
-DEFAULT_PROPOSER_CHANNEL = "opencode"
-PROPOSER_MODEL_BY_CHANNEL = {"opencode": IMPROVER_MODEL, "claude_cli": IMPROVER_MODEL}
+DEFAULT_PROPOSER_CHANNEL = env("HARNESS2_IMPROVER_CHANNEL", "opencode")
+PROPOSER_MODEL_BY_CHANNEL = {
+    "opencode": IMPROVER_MODEL,
+    "claude_cli": IMPROVER_MODEL,
+    "pi": IMPROVER_MODEL,
+}
 PHASE_WIDTH = 2
 TRANSPORT_ATTEMPTS = 2
 PROPOSER_CONCURRENCY = 2
 
 
-def validate_models(*, judge: bool = False) -> None:
-    require("HARNESS2_SOLVER_MODEL", needed_by="executor rollouts")
-    if "/" not in SOLVER_MODEL_OC or "/" not in IMPROVER_MODEL:
-        raise ConfigError("Executor and improver models must use OpenCode's provider/model syntax")
-    if any(m.startswith("google-vertex") for m in (SOLVER_MODEL_OC, IMPROVER_MODEL)):
+def needs_opencode(substrate: str) -> bool:
+    """OpenCode is needed when it executes rollouts or runs the improver sessions."""
+    return substrate == "oc" or DEFAULT_PROPOSER_CHANNEL == "opencode"
+
+
+def validate_models(*, substrate: str = "", judge: bool = False) -> None:
+    """Fail fast on the model settings this run will use, before anything is spent.
+
+    `substrate` narrows the executor check to the framework that will execute the rollouts,
+    so a Pi-only setup does not need the OpenCode model set. Without it the OpenCode settings
+    are checked, which is what every caller before the agent-CLI substrates needed.
+    """
+    from .substrate import registry as SUB  # local: registry builds on this module
+
+    if DEFAULT_PROPOSER_CHANNEL not in PROPOSER_MODEL_BY_CHANNEL:
+        raise ConfigError(
+            f"HARNESS2_IMPROVER_CHANNEL={DEFAULT_PROPOSER_CHANNEL!r} is not one of "
+            f"{tuple(PROPOSER_MODEL_BY_CHANNEL)}"
+        )
+    name = SUB.check(substrate or "oc")
+    model = SUB.solver_model(name)
+    if not model:
+        raise ConfigError(
+            f"Set {SUB.MODEL_VARS[name]} for {SUB.DESCRIPTIONS[name]} executor rollouts "
+            f"(see .env.example)"
+        )
+    if name in SUB.MODEL_NEEDS_PROVIDER and "/" not in model:
+        raise ConfigError(f"{SUB.MODEL_VARS[name]} must be provider/model, got {model!r}")
+    if "/" not in IMPROVER_MODEL:
+        raise ConfigError("IMPROVER_MODEL must use OpenCode's provider/model syntax")
+    if any(m.startswith("google-vertex") for m in (model, IMPROVER_MODEL)):
         if not VERTEX_PROJECT:
             raise ConfigError("Set GOOGLE_CLOUD_PROJECT for Vertex AI")
     if judge:
