@@ -8,6 +8,7 @@
   <a href="https://harness2.github.io"><img src="https://img.shields.io/badge/Website-harness2.github.io-4285F4?logo=googlechrome&logoColor=white" alt="Website"></a>
   <a href="docs/BENCHMARKS.md"><img src="https://img.shields.io/badge/Docs-Benchmark%20guides-FBBC04" alt="Benchmark guides"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-34A853" alt="License"></a>
+  <a href="https://github.com/noetion/harness2/actions/workflows/test.yml"><img src="https://github.com/noetion/harness2/actions/workflows/test.yml/badge.svg" alt="Credential-free tests"></a>
 </p>
 
 > **Fork notice.** This is an unofficial fork of
