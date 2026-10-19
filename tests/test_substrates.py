@@ -860,6 +860,17 @@ class CustomSetupTests(unittest.TestCase):
         with patch("sys.stdout"):
             self.assertEqual(setup.main(["custom", "--substrate", "pi", "--dry-run"]), 0)
 
+    def test_setup_for_a_dsh_run_also_installs_the_improver(self):
+        """dsh improves with Pi by default, so installing only the executor strands the run."""
+        with patch("sys.stdout") as out:
+            self.assertEqual(setup.main(["custom", "--substrate", "dsh", "--dry-run"]), 0)
+        printed = " ".join(str(c) for c in out.mock_calls)
+        self.assertIn("@deepseek-ai/dsh", printed)
+        self.assertTrue(
+            "pi-coding-agent" in printed or "Using the installed Pi CLI" in printed,
+            printed,
+        )
+
     def test_setup_for_custom_refuses_a_substrate_it_cannot_run(self):
         # setup reports a refusal as an exit status with its reason, like every other failure
         with patch("sys.stdout"), patch("sys.stderr") as err:

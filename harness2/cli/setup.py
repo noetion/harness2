@@ -25,6 +25,20 @@ from harness2 import config, install
 from harness2.substrate.registry import HELP, SUBSTRATES
 
 
+def _install_clis(substrate: str, *, dry: bool) -> None:
+    """Install the executor CLI and the improver's, which need not be the same one.
+
+    A DeepSeek Harness rollout improves with Pi unless a channel is configured, so
+    installing only the executor would leave the run unable to improve.
+    """
+    if substrate == "cx":
+        install.codex(dry_run=dry)
+    if substrate == "pi" or config.proposer_channel(substrate) == "pi":
+        install.pi(dry_run=dry)
+    if substrate == "dsh":
+        install.dsh(dry_run=dry)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("benchmark", choices=("jb", "lab", "wb", "custom"))
@@ -55,14 +69,11 @@ def main(argv=None):
         if args.benchmark == "wb" and args.substrate in ("pi", "dsh"):
             raise ValueError("WorkBuddy supports --substrate oc or cx only")
         if args.benchmark == "custom":
-            if args.substrate == "pi":
-                install.pi(dry_run=dry)
-            elif args.substrate == "dsh":
-                install.dsh(dry_run=dry)
-            else:
+            if args.substrate not in ("pi", "dsh"):
                 raise ValueError(
                     f"the custom benchmark runs --substrate pi or dsh, got {args.substrate!r}"
                 )
+            _install_clis(args.substrate, dry=dry)
             print(
                 "The custom benchmark needs no dataset: point HARNESS2_CUSTOM_TASKS at your "
                 "own <area>/<task>/TASK.md directories, then run harness2-check.",
@@ -127,12 +138,7 @@ def main(argv=None):
                     cwd=repo,
                     dry_run=dry,
                 )
-        if args.substrate == "cx":
-            install.codex(dry_run=dry)
-        if args.substrate == "pi" or config.proposer_channel(args.substrate) == "pi":
-            install.pi(dry_run=dry)
-        if args.substrate == "dsh":
-            install.dsh(dry_run=dry)
+        _install_clis(args.substrate, dry=dry)
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         p.exit(1, f"setup failed: {exc}\n")
     print(
