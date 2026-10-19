@@ -15,10 +15,17 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install
         run: |
           uv venv --python 3.12
           uv pip install -e '.[render]'
+      # The Pi extension load check shells out to the real CLI, so install it and let the
+      # suite exercise that path instead of skipping it.
+      - name: Install the Pi CLI
+        run: npm install --global @earendil-works/pi-coding-agent@1.3.0
       - name: Lint
         run: uvx ruff@0.17.1 check .
       - name: Test

@@ -10,6 +10,7 @@ reject an unloadable harness, and the export/import round trip.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -27,6 +28,11 @@ from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec, resolve_pro
 from harness2.preflight import check
 from harness2.substrate import dsh, pi, registry
 from harness2.substrate.agent_cli import clip, iter_jsonl, stage_root
+
+# These checks run a real binary; on a host without it they are skipped rather than faked,
+# so the suite says what it did not cover.
+PI_INSTALLED = bool(shutil.which("pi"))
+NODE_INSTALLED = bool(shutil.which("node"))
 
 
 def _spec(substrate: str) -> BenchSpec:
@@ -158,6 +164,7 @@ class PiSubstrateTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("bad-name", problems[0])
 
+    @unittest.skipUnless(PI_INSTALLED, "the pi CLI is not installed")
     def test_a_sound_extension_passes_the_offline_load_check(self):
         ext = {
             ".pi/extensions/ok.ts": (
@@ -166,6 +173,7 @@ class PiSubstrateTests(unittest.TestCase):
         }
         self.assertEqual(pi.check_extensions(ext), [])
 
+    @unittest.skipUnless(PI_INSTALLED, "the pi CLI is not installed")
     def test_a_broken_extension_is_rejected_before_any_model_call(self):
         bad = {".pi/extensions/bad.ts": "export default function ( {\n"}
         problems = pi.check_extensions(bad)
@@ -298,15 +306,18 @@ class DshSubstrateTests(unittest.TestCase):
         self.assertEqual(env["DSH_AGENTS_HOME"], "/tmp/a")
         self.assertEqual(env["DSH_PERMISSION_MODE"], "danger-full-access")
 
+    @unittest.skipUnless(NODE_INSTALLED, "node is not installed")
     def test_plugin_shape_is_checked_offline(self):
         problems = dsh.DshSubstrate().check_tree({".dsh/plugins/x.ts": "export const name = 1;\n"})
         self.assertEqual(len(problems), 1)
         self.assertIn("dsh plugin", problems[0])
 
+    @unittest.skipUnless(NODE_INSTALLED, "node is not installed")
     def test_sound_plugin_passes(self):
         src = "export const name = 'x';\nexport function apply(ctx: any) { void ctx; }\n"
         self.assertEqual(dsh.DshSubstrate().check_tree({".dsh/plugins/x.ts": src}), [])
 
+    @unittest.skipUnless(NODE_INSTALLED, "node is not installed")
     def test_syntax_error_is_reported_against_the_relative_path(self):
         problems = dsh.DshSubstrate().check_tree({".dsh/plugins/bad.ts": "export function ( {\n"})
         self.assertEqual(len(problems), 1)
@@ -667,6 +678,37 @@ class RunnerRuleTests(unittest.TestCase):
         self.assertFalse((ws / "notes.txt").exists())
 
 
+class _FakeSubstrate:
+    """A substrate with no CLI: materialise and preflight are stubs, and execute runs the
+    adapter's own launcher, which is the code under test."""
+
+    name = "pi"
+
+    def __init__(self, adapter):
+        self._adapter = adapter
+
+    def surface(self):
+        return pi.PI_SURFACE
+
+    def preflight(self):
+        return None
+
+    def materialise(self, tree_dir, spec, ctx):
+        from harness2.substrate.base import Install
+
+        d = Path(tempfile.mkdtemp()) / "staged"
+        d.mkdir(parents=True)
+        (d / "AGENTS.md").write_text("role", encoding="utf-8")
+        return Install(staging_dir=d, fingerprint="f", extras={})
+
+    def execute(self, task_id, install, run_ids, timeout):
+        from harness2.substrate.base import RunRequest
+
+        return self._adapter._launch(
+            RunRequest(task_ref=task_id, run_ids=tuple(run_ids), timeout=timeout), install
+        )
+
+
 class CustomMarkerTests(unittest.TestCase):
     """The real launcher path, with only the model call stubbed out."""
 
@@ -681,9 +723,11 @@ class CustomMarkerTests(unittest.TestCase):
         self._td.cleanup()
 
     def _adapter(self):
-        return CustomAdapter(
+        a = CustomAdapter(
             "pi", tasks_root=self.root, seed_dir=self.seed, runs_root=self.root / "runs"
         )
+        a.substrate = _FakeSubstrate(a)
+        return a
 
     def _rollout(self, a, *, produce):
         """A stand-in for run_rollout that exercises prepare() and collect() for real."""
@@ -733,7 +777,8 @@ class CustomMarkerTests(unittest.TestCase):
         other = self.root / "seed2"
         other.mkdir()
         (other / "AGENTS.md").write_text("a different role", encoding="utf-8")
-        a2 = CustomAdapter("pi", tasks_root=self.root, seed_dir=other, runs_root=self.root / "runs")
+        a2 = self._adapter()
+        a2.seed_dir = other
         empty, _ = self._rollout(a2, produce=False)
         with patch.object(custom, "run_rollout", empty), self.assertRaises(RuntimeError):
             a2.execute("area/t", None, "area/t/base1")
