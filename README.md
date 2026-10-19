@@ -57,6 +57,8 @@ https://github.com/user-attachments/assets/76b10548-b14b-4c8f-9aa5-a93662df4d56
 - [Harness components](#harness-components)
 - [Install](#install)
 - [Run a benchmark](#run-a-benchmark)
+- [Executor substrates: Pi and DeepSeek Harness](#executor-substrates-pi-and-deepseek-harness)
+- [Your own tasks](#your-own-tasks)
 - [Experiments](#experiments)
 - [Web access](#web-access)
 - [Results and resume](#results-and-resume)
@@ -136,6 +138,96 @@ Choose one benchmark per command. WorkBuddy also takes `--subset office`,
 `--subset web`, or `--subset code` on every command after setup. The
 [benchmark guides](docs/BENCHMARKS.md) cover each one's data, domains, and
 grading.
+
+## Executor substrates: Pi and DeepSeek Harness
+
+`--substrate` chooses what runs the task. Four work today:
+
+| Substrate | CLI | Notes |
+|---|---|---|
+| `oc` | OpenCode | Upstream default; runs from a pinned checkout through bun |
+| `cx` | Codex CLI | Pinned binary under `dependencies/codex` |
+| `pi` | [Pi](https://github.com/earendil-works/pi) | `npm install -g @earendil-works/pi-coding-agent`, or let setup install 1.3.0 into `dependencies/pi` |
+| `dsh` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Setup installs 0.2.1-rc.2 into `dependencies/dsh` |
+
+```bash
+harness2-setup jb --substrate pi
+harness2-check --bench jb --substrate pi
+harness2 --bench jb --substrate pi --k 1 --only-domains technical_writers --max-tasks 1
+harness2-judge --bench jb --substrate pi --k 1
+```
+
+`pi` and `dsh` run as coding-agent CLIs in a scratch workspace, not from a
+pinned checkout: each rollout copies the harness to the workspace root, gets an
+empty agent home (`PI_CODING_AGENT_DIR` or `DSH_HOME`) and explicit skill and
+extension flags, so your own configuration never leaks into a run. The
+workspace lives under `HARNESS2_SCRATCH` (default: the system temp directory)
+and is refused if it would sit inside a git checkout, because both agents find
+their project root by walking up to `.git`.
+
+Model access is configuration, not code. `HARNESS2_PI_MODEL` and
+`HARNESS2_DSH_MODEL` default to `HARNESS2_SOLVER_MODEL`, and both CLIs read their
+credentials from the provider's environment variable (`OPENCODE_API_KEY`,
+`DEEPSEEK_API_KEY`, ...). Any `provider/model` your CLI can reach works; nothing
+here is tied to a particular vendor.
+
+Both substrates also validate a proposed harness before it is adopted: Pi
+refuses to start with a broken extension or an unparseable skill name, and dsh
+drops a plugin that will not import, so a tree that could never produce a
+rollout is rejected while it is still a proposal.
+
+## Your own tasks
+
+`--bench custom` refines a harness on work you care about, with no reference
+answers and no dataset to download. Point it at a directory:
+
+```
+my-tasks/
+  writing/
+    exec-summary/
+      TASK.md          the assignment, verbatim
+      files/           optional reference material
+      check.py         optional check, run against the deliverables
+```
+
+```bash
+export HARNESS2_CUSTOM_TASKS=~/my-tasks
+harness2-check --bench custom --substrate pi
+harness2 --bench custom --substrate pi --k 1 --only-domains writing --max-tasks 1
+harness2-judge --bench custom --substrate pi --k 1
+```
+
+`check.py` is optional and, when present, decides the verdict by exiting 0. With
+no `check.py` and a judge configured, each deliverable is rated against its own
+assignment: the task text plus what the agent produced, never a golden answer.
+With neither, rollouts still run and are reported, and the measurement is absent
+rather than zero. OpenCode and Codex are not supported here, because they need a
+benchmark-owned checkout, render step and credential file.
+
+Use several tasks per area. A single task gives the improver one example to
+reason from, and it will write the specifics of that example into the harness.
+
+### Carrying a harness between runs
+
+`harness2-export` writes a harness out as a portable seed, and
+`HARNESS2_CUSTOM_SEED` imports it as the tree the recursion starts from:
+
+```bash
+# a harness adopted while refining on JobBench
+harness2-export --bench jb --k 1 --task technical_writers/task1 \
+  --substrate pi --to ~/my-harness
+
+# or any tree you wrote by hand
+harness2-export --from ./some/harness --substrate pi --to ~/my-harness
+
+# start from it on your own tasks
+HARNESS2_CUSTOM_TASKS=~/my-tasks HARNESS2_CUSTOM_SEED=~/my-harness \
+  harness2 --bench custom --substrate pi --k 1
+```
+
+The export is the editable tree itself plus `harness2.json`, which records the
+source, the fingerprint, and the files it contains. Unset `HARNESS2_CUSTOM_SEED`
+to fall back to the built-in one-file seed.
 
 ## Experiments
 
