@@ -158,10 +158,13 @@ class Proposer:
             try:
                 if context_dir and Path(context_dir).is_dir():
                     shutil.copytree(context_dir, tmp / "context", dirs_exist_ok=True)
+                session = {
+                    "claude_cli": self._claude_cli,
+                    "opencode": self._opencode,
+                    "pi": self._pi,
+                }[self.spec.kind]
                 with _SEM if _SEM is not None else contextlib.nullcontext():
-                    text, cost, err = (
-                        self._claude_cli if self.spec.kind == "claude_cli" else self._opencode
-                    )(tmp, mission, system, wall)
+                    text, cost, err = session(tmp, mission, system, wall)
                 spent_usd += cost
                 if not text.strip():
                     last = err or "empty reply"
@@ -309,6 +312,62 @@ class Proposer:
             return text, cost, ""
         tail = _strip_oc_banner(p.stderr or "").strip()[-300:]
         return "", cost, f"rc={p.returncode}: {err or tail or 'empty reply'}"
+
+    def _pi(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
+        """One Pi print-mode session in `cwd`, isolated from the user's Pi configuration."""
+        from ..substrate.agent_cli import run_agent
+        from ..substrate.pi import PiSubstrate, pi_bin, split_effort, summarise
+
+        (cwd / "MISSION.md").write_text(
+            (f"{system}\n\n---\n\n" if system else "") + mission, encoding="utf-8"
+        )
+        out = cwd / "output"
+        out.mkdir(exist_ok=True)
+        prompt = (
+            "Read MISSION.md first. Do what it asks. Reply with the requested output as "
+            "your final message AND save it verbatim to output/answer.md."
+        )
+        cmd = [
+            pi_bin(),
+            "-p",
+            "--mode",
+            "json",
+            "--no-session",
+            "--no-approve",
+            "--no-context-files",
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+            "--model",
+            split_effort(self.spec.model, self.spec.effort),
+            prompt,
+        ]
+        state = Path(tempfile.mkdtemp(prefix="harness2-pi-improver-"))
+        try:
+            (state / "agent").mkdir()
+            env = PiSubstrate().env(self.env(), agent_dir=state / "agent")
+            ended = run_agent(
+                cmd,
+                cwd=cwd,
+                env=env,
+                stdout_path=state / "stream.jsonl",
+                stderr_path=state / "stderr.log",
+                timeout=wall,
+            )
+            if ended.timed_out:
+                raise subprocess.TimeoutExpired(cmd, wall)
+            summary = summarise(state / "stream.jsonl")
+            stderr = (state / "stderr.log").read_text(encoding="utf-8", errors="replace")
+        finally:
+            shutil.rmtree(state, ignore_errors=True)
+        cost = float(summary["cost_usd"])
+        ans = out / "answer.md"
+        if ans.is_file() and ans.read_text(errors="replace").strip():
+            return ans.read_text(errors="replace"), cost, ""
+        if summary["final_text"].strip():
+            return summary["final_text"], cost, ""
+        return "", cost, f"rc={ended.returncode}: {stderr.strip()[-300:] or 'empty reply'}"
 
     def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:
         """Copy `tmp/<sub>` somewhere durable before the session directory is removed."""

@@ -513,6 +513,160 @@ Hard rules, each one learned from a previous failure:
   surface."""
 
 
+# Pi and DeepSeek Harness share one layout: AGENTS.md is the only always-on file, skills live
+# under .agents/skills/, and the in-loop lever is a TypeScript module loaded into the agent
+# process. Only the lever differs, so both surfaces are built from one template.
+
+_AGENT_CLI_TABLE = """\
+| path | what it is | when it is in context |
+|---|---|---|
+| `AGENTS.md` | role, procedure, rules, durable facts | ALWAYS ON -- the ONLY always-on file, in the instructions of EVERY request; every token competes with the agent's own output budget |
+| `.agents/skills/<name>/SKILL.md` | a reusable workflow | name+description advertised; the BODY is read ON DEMAND |
+| `.agents/skills/<name>/scripts/*` | a helper carried with its skill | run via bash |
+| `scripts/<name>.py` | a deterministic helper | run on demand via bash |
+| `__LEVER_PATH__` | __LEVER_WHAT__ | loaded at startup; acts INSIDE the tool loop, on every matching tool call |"""
+
+_PI_LEVER = """\
+`.pi/extensions/<name>.ts` -- a Pi extension: a TypeScript module whose default export is a
+function receiving the extension API, `export default function (pi) { ... }`, that registers
+handlers with `pi.on(event, handler)`. Three events cover the useful shapes:
+  - `"tool_call"` -- runs before a tool executes, with `event.toolName` and `event.input`;
+    returning `{ block: true, reason: "..." }` refuses the call and shows the model the reason.
+  - `"tool_result"` -- runs after a tool executes, with `event.toolName`, `event.input`,
+    `event.content` (a list of `{ type: "text", text }` parts) and `event.isError`; returning
+    `{ content: [{ type: "text", text: "..." }] }` replaces what the model sees -- append a
+    targeted hint after a known error signature, or trim an oversized output.
+  - `"agent_before_settle"` -- runs when the agent is about to finish; returning
+    `{ continue: true, entries: [{ type: "custom_message", customType: "harness",
+    content: "...", display: true }] }` sends one more message and resumes the run. Guard it
+    with a flag so it fires at most once (for example, only while no deliverable exists yet).
+Import only Node built-ins (`node:fs`, `node:path`, `node:child_process`): nothing is
+installed for the extension. Every extension is loaded during validation, and one that fails
+to load rejects the whole harness, because Pi refuses to start with it."""
+
+_DSH_LEVER = """\
+`.dsh/plugins/<name>.ts` -- a DeepSeek Harness plugin: a TypeScript module exporting
+`name` (a string) and `apply(ctx)`, which registers listeners with `ctx.on(...)`. Two
+tool-loop events cover the useful shapes; each listener must `return next()` to pass a call
+through unchanged:
+  - `ctx.on("tools/pre-execute", async (exec, next) => ...)` -- runs before a tool executes,
+    with `exec.name` and `exec.arguments`; returning `{ kind: "deny", reason: "..." }`
+    refuses the call and shows the model the reason.
+  - `ctx.on("tools/post-execute", async (exec, result, next) => ...)` -- runs after a tool
+    executes; returning `{ kind: "accept", content: [{ type: "text", text: "..." }] }`
+    replaces what the model sees (append a targeted hint, trim an oversized output), and
+    `{ kind: "block", feedback: [{ type: "text", text: "..." }] }` turns the result into an
+    error carrying corrective feedback.
+Import only Node built-ins (`node:fs`, `node:path`, `node:child_process`): nothing is
+installed for the plugin. Every plugin is imported during validation, and one that fails to
+load, or lacks `name` or `apply`, rejects the whole harness."""
+
+
+def _agent_cli_surface(lever_path: str, lever_what: str, lever_para: str, lever_word: str) -> str:
+    table = _AGENT_CLI_TABLE.replace("__LEVER_PATH__", lever_path).replace(
+        "__LEVER_WHAT__", lever_what
+    )
+    return f"""\
+# WHAT YOU CAN CHANGE
+
+The harness is a tree of components. Each has a different runtime cost and a different reach:
+
+{table}
+
+The two that are easy to get wrong:
+
+`.agents/skills/` -- YAML frontmatter needs `name:` matching the directory (lowercase letters,
+digits and hyphens) and a `description:`, or the skill is dropped silently at load. Only name
+and description are shown up front -- a skill never NAMED in `AGENTS.md` as a trigger is never
+opened, so it is pure dead weight. If a skill calls a helper, that helper must travel with it.
+
+{lever_para}
+The only component that acts in the tool loop rather than in the prompt -- the only way to
+enforce something the model cannot skip. Prose can be stopped reading; a {lever_word} cannot.
+Keep it small and fast; put real logic in a `scripts/` helper it calls.
+
+There are no subagents on this framework: do not write `sub_agents/`.
+
+Change only what a trajectory shows needs changing -- but WHERE you change something, the FORM
+matters as much as the content, and the cheap form is not the obvious one.
+
+ALWAYS-ON PROSE IS THE EXPENSIVE OPTION. Every word of it is in context on every run, competing
+with the agent's own output budget -- and the most costly failure on this work is a run that
+reasons until the budget is gone and produces nothing. Adding prose makes that MORE likely, not
+less. An on-demand component costs nothing until the moment it is invoked.
+
+So prefer, in this order:
+  - a SKILL for anything with a recognisable trigger -- a procedure for a document type, a
+    format, a recurring situation. This is the default form for new instruction.
+  - a SCRIPT for a deterministic operation the runs hand-rolled and got wrong, or did slowly.
+  - a {lever_word.upper()} when a recurring, mechanical problem in the tool loop is better handled
+    there than in prose. It acts inside the loop, so it cannot be ignored AND it costs nothing
+    in always-on budget. The recurring shapes: appending a targeted hint after an error
+    signature that keeps recurring; refusing a known-bad call with a reason that teaches the
+    fix; trimming oversized tool output; and checking a write immediately after it happens.
+  - ALWAYS-ON TEXT last, and only for a short rule that genuinely applies to every run.
+    `AGENTS.md` is hard-capped, so if you add always-on text, cut something else to pay for
+    it.
+
+A skill only exists if the agent knows to call it: its literal name must appear in `AGENTS.md`
+as a trigger, or it is dead weight.
+
+`AGENTS.md` MUST NEVER BE LEFT EMPTY OR DELETED. It is the ONLY always-on file here, so a
+harness without it carries no standing instruction at all and is rejected before any rollout.
+To pay for a new rule, TRIM it -- never empty it.
+
+If a skill calls a helper script, ship it at `.agents/skills/<skill-name>/scripts/<file>.py`.
+A helper placed directly in the skill directory is OFF THE EDITABLE SURFACE and silently
+dropped, leaving the skill invoking a file that does not exist.
+
+""" + _surface_part(_SURFACE_CODEX, "THE DELIVERABLE'S SHAPE")
+
+
+_SURFACE_PI = _agent_cli_surface(
+    ".pi/extensions/<name>.ts", "a Pi extension", _PI_LEVER, "extension"
+)
+_SURFACE_DSH = _agent_cli_surface(
+    ".dsh/plugins/<name>.ts", "a DeepSeek Harness plugin", _DSH_LEVER, "plugin"
+)
+
+
+def _agent_cli_tts_head(lever_path: str, lever_what: str, lever_para: str) -> str:
+    table = _AGENT_CLI_TABLE.replace("__LEVER_PATH__", lever_path).replace(
+        "__LEVER_WHAT__", lever_what
+    )
+    return f"""\
+# EDITABLE HARNESS SURFACE
+
+You may write ONLY these paths. Anything else is off the editable surface: it is dropped before
+your work is used, however good it is.
+
+{table}
+
+## The in-loop lever, which is easy to get wrong
+
+{lever_para}
+
+It is rare in the harnesses adopted so far. Read that as a gap in what has been tried, not as a
+verdict -- but still add one only where a trajectory shows the failure it would fix.
+
+Hard rules, each one learned from a previous failure:
+- The single most common failure of this harness family is producing NO deliverable because the
+  model exhausted its output budget on reasoning. Always-on prose makes that WORSE. Prefer an
+  on-demand skill over new always-on prose; if you add always-on text, cut something else --
+  `AGENTS.md` is hard-capped, and NEVER left empty: it is the only always-on file, so an empty
+  one is a harness that does not exist.
+- A skill's literal directory name must appear in `AGENTS.md` as a trigger, or the skill is
+  never opened. Scripts run via Bash.
+- `scripts/*.py` filenames must be snake_case and must compile under py_compile.
+- There are no subagents here: never write `sub_agents/`."""
+
+
+_TTS_SURFACE_HEAD_PI = _agent_cli_tts_head(".pi/extensions/<name>.ts", "a Pi extension", _PI_LEVER)
+_TTS_SURFACE_HEAD_DSH = _agent_cli_tts_head(
+    ".dsh/plugins/<name>.ts", "a DeepSeek Harness plugin", _DSH_LEVER
+)
+
+
 _TTS_INV = """\
 # YOUR DIMENSION: INVARIANT -- how the agent works, independent of the subject
 
@@ -629,7 +783,33 @@ def _build_surface_texts() -> dict[str, _SurfaceText]:
             _surface_part(_SURFACE_CODEX, "# HOW TO MAKE A CHANGE"),
         ]
     )
+    agent_cli = {}
+    for name, head, surface_md, lever in (
+        ("pi", _TTS_SURFACE_HEAD_PI, _SURFACE_PI, "`.pi/extensions/<name>.ts` extension"),
+        ("dsh", _TTS_SURFACE_HEAD_DSH, _SURFACE_DSH, "`.dsh/plugins/<name>.ts` plugin"),
+    ):
+        agent_cli[name] = _SurfaceText(
+            surface_md=surface_md,
+            inv=_INV_TEMPLATE.replace(
+                "__LOOP_LEVER__",
+                f"{lever} -- for example, refusing a known-bad call with a reason that "
+                "teaches the fix",
+            ),
+            dom=_DOM_TEMPLATE.replace(
+                "__TRIGGER_SENTENCE__",
+                "A skill exists only once its name appears in `AGENTS.md` as a trigger: write "
+                "that trigger line in the same edit.",
+            ),
+            tts_surface="\n\n".join(
+                [
+                    head,
+                    _surface_part(surface_md, "A skill only exists", "THE DELIVERABLE'S SHAPE"),
+                    _surface_part(surface_md, "# HOW TO MAKE A CHANGE"),
+                ]
+            ),
+        )
     return {
+        **agent_cli,
         "opencode": _SurfaceText(
             surface_md=_SURFACE_OPENCODE,
             inv=_INV_TEMPLATE.replace(
