@@ -62,9 +62,14 @@ def check(adapter, *, judge=False) -> list[str]:
             errors.append(str(exc))
 
     bench = adapter.spec.name.split("-", 1)[0]
-    name = {"jb": "job-bench-eval", "lab": "harvey-labs", "wb": "workbuddy-bench"}[bench]
+    # `custom` has no pinned dataset: its tasks are the user's own directory.
+    name = {
+        "jb": "job-bench-eval",
+        "lab": "harvey-labs",
+        "wb": "workbuddy-bench",
+    }.get(bench, "")
     repo = config.DEPENDENCIES / name
-    for dependency in (name, "opencode") if opencode else (name,):
+    for dependency in ((name, "opencode") if opencode else (name,)) if name else ():
         target = config.DEPENDENCIES / dependency
         if (target / ".git").exists():
             try:

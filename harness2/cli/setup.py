@@ -26,7 +26,7 @@ from harness2.substrate.registry import HELP, SUBSTRATES
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("benchmark", choices=("jb", "lab", "wb"))
+    p.add_argument("benchmark", choices=("jb", "lab", "wb", "custom"))
     p.add_argument(
         "--subset",
         choices=("office", "web", "code"),
@@ -54,6 +54,15 @@ def main(argv=None):
                     raise RuntimeError(f"Missing {binary}; see README.md")
         if args.benchmark == "wb" and args.substrate in ("pi", "dsh"):
             raise ValueError("WorkBuddy supports --substrate oc or cx only")
+        if args.benchmark == "custom":
+            install.pi(dry_run=dry) if args.substrate == "pi" else None
+            install.dsh(dry_run=dry) if args.substrate == "dsh" else None
+            print(
+                "The custom benchmark needs no dataset: point HARNESS2_CUSTOM_TASKS at your "
+                "own <area>/<task>/TASK.md directories, then run harness2-check.",
+                flush=True,
+            )
+            return 0
         if config.needs_opencode(args.substrate):
             install.clone("opencode", dry_run=dry)
             install.patch("opencode", dry_run=dry)

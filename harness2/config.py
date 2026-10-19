@@ -99,6 +99,18 @@ SCRATCH = (
     .expanduser()
     .resolve()
 )
+# The custom benchmark: a directory of your own assignments, and an optional seed harness.
+CUSTOM_TASKS = (
+    Path(env("HARNESS2_CUSTOM_TASKS", "")).expanduser().resolve()
+    if env("HARNESS2_CUSTOM_TASKS", "")
+    else None
+)
+CUSTOM_SEED = (
+    Path(env("HARNESS2_CUSTOM_SEED", "")).expanduser().resolve()
+    if env("HARNESS2_CUSTOM_SEED", "")
+    else None
+)
+SEEDS = PKG / "seeds"
 VERTEX_PROJECT = env("GOOGLE_CLOUD_PROJECT", env("HARNESS2_VERTEX_PROJECT", ""))
 VERTEX_REGION = env("GOOGLE_CLOUD_LOCATION", "global")
 if VERTEX_PROJECT:
