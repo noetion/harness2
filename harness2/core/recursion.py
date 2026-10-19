@@ -126,6 +126,11 @@ def _accept_tree(
             reserved_scripts=harness_tree.RESERVED_SCRIPTS | adapter.spec.reserved_scripts,
         )
         adapter.validate_tree(new)
+        substrate_check = getattr(adapter.substrate, "check_tree", None)
+        if callable(substrate_check):
+            problems = substrate_check(new)
+            if problems:
+                raise ValueError(" | ".join(problems))
         context.assert_tree_has_no_grader_verdicts(new)
     except ValueError as exc:
         return kept, str(exc)

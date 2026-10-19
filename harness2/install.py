@@ -213,6 +213,26 @@ def codex(*, dry_run=False):
     configure_codex(dry_run=dry_run)
 
 
+def dsh(*, dry_run=False):
+    """Install the pinned DeepSeek Harness CLI under dependencies/dsh."""
+    from .substrate.dsh import DSH_PACKAGE, DSH_VERSION
+
+    root = config.DEPENDENCIES / "dsh"
+    run(["npm", "install", "--prefix", root, f"{DSH_PACKAGE}@{DSH_VERSION}"], dry_run=dry_run)
+
+
+def pi(*, dry_run=False):
+    """Install the pinned Pi CLI under dependencies/pi unless one is already available."""
+    from .substrate.pi import PI_PACKAGE, PI_VERSION, pi_bin
+
+    found = pi_bin()
+    if shutil.which(found) or Path(found).is_file():
+        print(f"Using the installed Pi CLI: {found}", flush=True)
+        return
+    root = config.DEPENDENCIES / "pi"
+    run(["npm", "install", "--prefix", root, f"{PI_PACKAGE}@{PI_VERSION}"], dry_run=dry_run)
+
+
 def _share_with_containers(root: Path) -> None:
     """Make the staged dist readable by the container user it is bind-mounted for.
 

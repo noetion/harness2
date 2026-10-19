@@ -21,18 +21,19 @@ import shutil
 import subprocess
 
 from harness2 import config, install
+from harness2.substrate.registry import HELP, SUBSTRATES
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("benchmark", choices=("jb", "lab", "wb"))
+    p.add_argument("benchmark", choices=("jb", "lab", "wb", "custom"))
     p.add_argument(
         "--subset",
         choices=("office", "web", "code"),
         default=None,
         help="wb only: one subset to install; omitted installs office, web, and code",
     )
-    p.add_argument("--substrate", choices=("oc", "cx"), default="oc")
+    p.add_argument("--substrate", choices=SUBSTRATES, default="oc", help=HELP)
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
     if args.subset and args.benchmark != "wb":
@@ -51,16 +52,35 @@ def main(argv=None):
             ):
                 if not shutil.which(binary):
                     raise RuntimeError(f"Missing {binary}; see README.md")
-        install.clone("opencode", dry_run=dry)
-        install.patch("opencode", dry_run=dry)
-        install.run(
-            ["npm", "install", "--prefix", config.DEPENDENCIES / "tools", "bun@1.3.11"], dry_run=dry
-        )
-        install.run(
-            [config.BUN, "install", "--frozen-lockfile", "--ignore-scripts"],
-            cwd=config.OPENCODE_DIR,
-            dry_run=dry,
-        )
+        if args.benchmark == "wb" and args.substrate in ("pi", "dsh"):
+            raise ValueError("WorkBuddy supports --substrate oc or cx only")
+        if args.benchmark == "custom":
+            if args.substrate == "pi":
+                install.pi(dry_run=dry)
+            elif args.substrate == "dsh":
+                install.dsh(dry_run=dry)
+            else:
+                raise ValueError(
+                    f"the custom benchmark runs --substrate pi or dsh, got {args.substrate!r}"
+                )
+            print(
+                "The custom benchmark needs no dataset: point HARNESS2_CUSTOM_TASKS at your "
+                "own <area>/<task>/TASK.md directories, then run harness2-check.",
+                flush=True,
+            )
+            return 0
+        if config.needs_opencode(args.substrate):
+            install.clone("opencode", dry_run=dry)
+            install.patch("opencode", dry_run=dry)
+            install.run(
+                ["npm", "install", "--prefix", config.DEPENDENCIES / "tools", "bun@1.3.11"],
+                dry_run=dry,
+            )
+            install.run(
+                [config.BUN, "install", "--frozen-lockfile", "--ignore-scripts"],
+                cwd=config.OPENCODE_DIR,
+                dry_run=dry,
+            )
         install.clone(name, dry_run=dry)
         install.patch(name, dry_run=dry)
         install.overlays(name, dry_run=dry)
@@ -106,6 +126,10 @@ def main(argv=None):
                 )
         if args.substrate == "cx":
             install.codex(dry_run=dry)
+        if args.substrate == "pi" or config.DEFAULT_PROPOSER_CHANNEL == "pi":
+            install.pi(dry_run=dry)
+        if args.substrate == "dsh":
+            install.dsh(dry_run=dry)
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         p.exit(1, f"setup failed: {exc}\n")
     print(

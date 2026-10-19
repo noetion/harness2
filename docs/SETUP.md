@@ -163,3 +163,39 @@ A wheel ships the `harness2` package only. The task partitioner,
 `python scripts/split_tasks.py`, requires this source tree. For a wheel
 installation, work from a dedicated directory: `.env`, `dependencies/`, and
 `runs/` are resolved there.
+
+## Pi executor
+
+Pi runs as a coding agent in a scratch workspace, so setup only needs the CLI:
+
+```bash
+npm install -g @earendil-works/pi-coding-agent   # or:
+harness2-setup jb --substrate pi                 # installs 1.3.0 into dependencies/pi
+harness2-check --bench jb --substrate pi
+```
+
+`HARNESS2_PI_BIN` overrides the binary; `HARNESS2_PI_MODEL` overrides the model
+and defaults to `HARNESS2_SOLVER_MODEL`. Credentials come from the provider's
+environment variable (`OPENCODE_API_KEY`, `ANTHROPIC_API_KEY`, ...), and each
+rollout gets an empty `PI_CODING_AGENT_DIR` so saved logins are not inherited.
+`HARNESS2_PI_AGENT_DIR` points at a dedicated agent directory if you want them.
+
+Pi is also a usable improver channel: `HARNESS2_IMPROVER_CHANNEL=pi`.
+
+## DeepSeek Harness executor
+
+```bash
+harness2-setup jb --substrate dsh    # installs 0.2.1-rc.2 into dependencies/dsh
+harness2-check --bench jb --substrate dsh
+```
+
+`HARNESS2_DSH_BIN` overrides the binary and `HARNESS2_DSH_MODEL` the model; a bare model id
+resolves to dsh's `deepseek-official` route, which is where it registers its DeepSeek API-key
+adapter. Each
+rollout gets an empty `DSH_HOME` and `DSH_AGENTS_HOME`, plus a `--patch` overlay
+that points dsh at the model and loads the harness's own plugins.
+
+Headless dsh has no approval channel, so `HARNESS2_DSH_PERMISSION_MODE` defaults
+to `danger-full-access`; a stricter mode makes dsh stop at its first write. To
+add profile rows of your own (a gateway, a different route), name an extra
+overlay with `HARNESS2_DSH_PATCH`; it is applied last.

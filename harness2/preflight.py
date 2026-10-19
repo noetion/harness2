@@ -23,6 +23,7 @@ import subprocess
 from . import config
 from .install import PATCHES, missing_runners
 from .substrate.opencode import OpencodeSubstrate
+from .substrate.pi import PiSubstrate
 
 
 def check(adapter, *, judge=False) -> list[str]:
@@ -43,21 +44,32 @@ def check(adapter, *, judge=False) -> list[str]:
             errors.append(f"{label}: {type(exc).__name__}; see README.md")
             return False
 
-    for validate in (
-        lambda: config.validate_models(judge=judge),
+    substrate = adapter.substrate.name
+    opencode = config.needs_opencode(substrate)
+    checks = [
+        lambda: config.validate_models(substrate=substrate, judge=judge),
         adapter.tasks,
-        OpencodeSubstrate().preflight,
-        adapter.preflight,
-    ):
+    ]
+    if opencode:
+        checks.append(OpencodeSubstrate().preflight)
+    if config.DEFAULT_PROPOSER_CHANNEL == "pi" and substrate != "pi":
+        checks.append(PiSubstrate().preflight)
+    checks.append(adapter.preflight)
+    for validate in checks:
         try:
             validate()
         except (OSError, RuntimeError, ValueError) as exc:
             errors.append(str(exc))
 
     bench = adapter.spec.name.split("-", 1)[0]
-    name = {"jb": "job-bench-eval", "lab": "harvey-labs", "wb": "workbuddy-bench"}[bench]
+    # `custom` has no pinned dataset: its tasks are the user's own directory.
+    name = {
+        "jb": "job-bench-eval",
+        "lab": "harvey-labs",
+        "wb": "workbuddy-bench",
+    }.get(bench, "")
     repo = config.DEPENDENCIES / name
-    for dependency in (name, "opencode"):
+    for dependency in ((name, "opencode") if opencode else (name,)) if name else ():
         target = config.DEPENDENCIES / dependency
         if (target / ".git").exists():
             try:
@@ -73,7 +85,7 @@ def check(adapter, *, judge=False) -> list[str]:
             f"{dependency} patch",
             ["git", "-C", target, "apply", "--reverse", "--check", patch],
         )
-    if not (config.OPENCODE_DIR / "node_modules").is_dir():
+    if opencode and not (config.OPENCODE_DIR / "node_modules").is_dir():
         errors.append(f"OpenCode dependencies missing; run harness2-setup {bench}")
 
     if any(

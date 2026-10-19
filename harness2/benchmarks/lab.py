@@ -515,6 +515,14 @@ class LabAdapter:
         split_file: Path | None = None,
     ):
         self.split_file = split_file
+        from ..substrate import registry as SUB
+
+        if SUB.is_agent_cli(substrate):
+            raise ValueError(
+                f"LAB drives its agents inside a harvester sandbox with its own document "
+                f"reader, so it supports --substrate oc or cx only, got {substrate!r}; use "
+                f"--bench jb or --bench custom for {', '.join(SUB.AGENT_CLI_SUBSTRATES)}"
+            )
         if skill_mode not in ("native", "inline"):
             raise ValueError(f"skill_mode must be 'native' or 'inline', got {skill_mode!r}")
         self.spec = lab_spec(substrate)
