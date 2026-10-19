@@ -35,7 +35,7 @@ from pathlib import Path
 from .. import config
 from ..core import runmark as RM
 from ..core import tree as HT
-from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
+from ..core.spec import BenchPrompts, BenchSpec, resolve_proposer
 from ..substrate import registry as SUB
 from ..substrate.agent_cli import clip
 from ..substrate.base import Install
@@ -107,13 +107,13 @@ def make_spec(substrate: str, *, runs_root: Path | None = None) -> BenchSpec:
         runs_root=runs_root or (config.RUNS / "custom"),
         install_mode=mode,
         prompts=custom_prompts(),
-        channels=_channels(),
+        channels=_channels(name),
         domain_word="area",
     )
 
 
-def _channels() -> dict:
-    ch = resolve_channel_model(None, None, effort="high")
+def _channels(substrate: str) -> dict:
+    ch = resolve_proposer(substrate, effort="high")
     return {"proposer": ch, "selector": ch}
 
 
@@ -191,6 +191,7 @@ class CustomAdapter:
     def preflight(self) -> None:
         """The tasks, the seed and the CLI must all be usable before money is spent."""
         self.substrate.preflight()
+        self._warn_thin_areas()
         if not self.tasks_root.is_dir():
             raise RuntimeError(
                 f"no custom tasks at {self.tasks_root}: create <area>/<task>/TASK.md there, or "
@@ -201,6 +202,23 @@ class CustomAdapter:
                 f"{self.tasks_root} holds no <area>/<task>/TASK.md, so there is nothing to run"
             )
         self.base_harness()
+
+    def _warn_thin_areas(self) -> None:
+        """Say when an area is too thin for the improver to generalise from.
+
+        With a single task in an area the only evidence available is that task, so a skill
+        adopted from it tends to describe that task's own files rather than the class of work.
+        """
+        seen: dict[str, int] = {}
+        for task_id in self.tasks():
+            area = self.domain_of(task_id)
+            seen[area] = seen.get(area, 0) + 1
+        thin = sorted(a for a, n in seen.items() if n < 2)
+        if thin:
+            _why(
+                f"area(s) {', '.join(thin)} hold fewer than two tasks, so an adopted skill will "
+                f"describe those specific tasks rather than the work they represent"
+            )
 
     def _out_dir(self, task_id: str, label: str) -> Path:
         return self.store / task_id / "model_output" / label

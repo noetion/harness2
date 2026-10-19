@@ -10,6 +10,16 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-34A853" alt="License"></a>
 </p>
 
+> **Fork notice.** This is an unofficial fork of
+> [google-research/harness2](https://github.com/google-research/harness2), not affiliated
+> with Google or the paper's authors. It adds `pi` (Pi coding agent) and `dsh` (DeepSeek
+> Harness) executor substrates for JobBench and the custom benchmark, a `custom` benchmark
+> for your own tasks without reference answers, and `harness2-export` /
+> `HARNESS2_CUSTOM_SEED` for carrying a harness between runs. The paper's results below were
+> produced upstream with the OpenCode and Codex executors. The additions here have been run
+> end to end on a handful of tasks with one model provider; they are not benchmarked, and
+> LAB and WorkBuddy-Bench do not support the new substrates.
+
 <p align="center">
   <a href="docs/BENCHMARKS.md#jobbench">
     <img src="assets/harness2-setup.gif" alt="Install, set up, and run JobBench: uv pip install -e '.[render]', harness2-setup jb, then harness2 --bench jb --k 1 --mode parallel. Click for prerequisites and commands." width="640">
@@ -95,6 +105,11 @@ harness2-demo --output runs/demo --k 2
 The local demo runs both recursion modes with deterministic editors and real
 Python executions. It requires no model credentials.
 
+The custom benchmark with the `pi` or `dsh` executor needs no Google Cloud
+project, no Docker and no OpenCode checkout: one CLI, one provider key, and a
+directory of your own tasks. That path is exercised on macOS as well as Linux.
+LAB and WorkBuddy-Bench keep the requirements below.
+
 For model-backed benchmarks, install **Node.js 20+, the Google Cloud CLI**, and
 the [benchmark dependencies](docs/SETUP.md#requirements). LAB needs Pandoc and
 Poppler; WorkBuddy-Bench needs Docker. Then configure your models:
@@ -141,7 +156,8 @@ grading.
 
 ## Executor substrates: Pi and DeepSeek Harness
 
-`--substrate` chooses what runs the task. Four work today:
+`--substrate` chooses what runs the task. Four are wired in; `pi` has been
+exercised end to end on JobBench, and `dsh` on the custom benchmark:
 
 | Substrate | CLI | Notes |
 |---|---|---|
@@ -168,8 +184,9 @@ their project root by walking up to `.git`.
 Model access is configuration, not code. `HARNESS2_PI_MODEL` and
 `HARNESS2_DSH_MODEL` default to `HARNESS2_SOLVER_MODEL`, and both CLIs read their
 credentials from the provider's environment variable (`OPENCODE_API_KEY`,
-`DEEPSEEK_API_KEY`, ...). Any `provider/model` your CLI can reach works; nothing
-here is tied to a particular vendor.
+`DEEPSEEK_API_KEY`, ...). Nothing here is tied to a particular vendor, but only an
+OpenCode Go provider has been exercised end to end, so treat another gateway as
+the first thing to smoke-test.
 
 Both substrates also validate a proposed harness while it is still a proposal,
 by loading it offline with credentials stripped: Pi exits before its first model

@@ -1,5 +1,12 @@
 # How to contribute
 
+**This is a fork.** Pull requests here go to the fork and are not bound by the
+Google CLA below; the sections that follow apply to contributions sent upstream to
+[google-research/harness2](https://github.com/google-research/harness2), which is
+where changes to the upstream behaviour should go once they are proven here.
+
+# How to contribute upstream
+
 We'd love to accept your patches and contributions to this project.
 
 ## Before you begin

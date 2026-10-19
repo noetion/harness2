@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified in the noetion/harness2 fork (2026); see NOTICE.
 
 """The benchmark seam: everything a benchmark must supply, and nothing more.
 
@@ -84,6 +85,20 @@ def resolve_channel_model(
             f"(e.g. {config.PROPOSER_MODEL_BY_CHANNEL['claude_cli']!r}), got {model!r}"
         )
     return ChannelSpec(kind, model, effort=effort, steps=steps, timeout=timeout)
+
+
+def resolve_proposer(substrate: str, *, effort: str = "high") -> ChannelSpec:
+    """The improver channel for a cell, given the executor it runs.
+
+    An unset HARNESS2_IMPROVER_CHANNEL lets a substrate that brings its own agent CLI
+    improve with Pi, so a Pi or DeepSeek Harness run does not also demand an OpenCode
+    checkout. An explicit setting always wins.
+    """
+    kind = config.proposer_channel(substrate)
+    model = config.PROPOSER_MODEL_BY_CHANNEL[kind]
+    if not model.strip():
+        return ChannelSpec(kind, "", effort=effort)
+    return resolve_channel_model(kind, model, effort=effort)
 
 
 @dataclass(frozen=True)
@@ -278,6 +293,7 @@ __all__ = [
     "ModelId",
     "resolve_prompts",
     "resolve_channel_model",
+    "resolve_proposer",
     "CHANNELS",
     "INSTALL_MODES",
 ]

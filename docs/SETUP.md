@@ -176,8 +176,9 @@ harness2-check --bench jb --substrate pi
 
 `HARNESS2_PI_BIN` overrides the binary; `HARNESS2_PI_MODEL` overrides the model
 and defaults to `HARNESS2_SOLVER_MODEL`. Credentials come from the provider's
-environment variable (`OPENCODE_API_KEY`, `ANTHROPIC_API_KEY`, ...), and each
-rollout gets an empty `PI_CODING_AGENT_DIR` so saved logins are not inherited.
+environment variable and each rollout gets an empty `PI_CODING_AGENT_DIR` so saved
+logins are not inherited. Only an OpenCode Go key has been exercised; a provider
+Pi reaches by another route is unverified here.
 `HARNESS2_PI_AGENT_DIR` points at a dedicated agent directory if you want them.
 
 Pi is also a usable improver channel: `HARNESS2_IMPROVER_CHANNEL=pi`.
@@ -191,7 +192,8 @@ harness2-check --bench jb --substrate dsh
 
 `HARNESS2_DSH_BIN` overrides the binary and `HARNESS2_DSH_MODEL` the model; a bare model id
 resolves to dsh's `deepseek-official` route, which is where it registers its DeepSeek API-key
-adapter. Each
+adapter (verified from dsh's own composed configuration, not by a call to DeepSeek's API,
+which this fork's author had no key for). Each
 rollout gets an empty `DSH_HOME` and `DSH_AGENTS_HOME`, plus a `--patch` overlay
 that points dsh at the model and loads the harness's own plugins.
 

@@ -1,0 +1,21 @@
+Harness²: Recursive Agent Harnessing for an Open World
+Copyright 2026 Google LLC
+
+This repository is an unofficial fork of
+https://github.com/google-research/harness2
+
+Modifications in this fork, made in 2026 and not reviewed by the upstream
+authors, are:
+
+  - the `pi` and `dsh` solver substrates under harness2/substrate/, the shared
+    agent-CLI plumbing and the rollout runner they use;
+  - the `custom` benchmark, the built-in custom seed, and harness2-export;
+  - the `pi` improver channel and its prompt surfaces;
+  - changes to the configuration, CLI, preflight, setup, prompts, proposer and
+    recursion modules, and to the JobBench adapter and its judge patch, needed
+    to select, validate and run those additions.
+
+Files carrying a Google copyright header that this fork changed also carry a
+one-line notice under that header. Everything else is upstream work.
+
+Licensed under the Apache License, Version 2.0; see LICENSE.

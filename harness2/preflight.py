@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified in the noetion/harness2 fork (2026); see NOTICE.
 
 """Benchmark dependency and runtime readiness checks."""
 
@@ -45,9 +46,13 @@ def check(adapter, *, judge=False) -> list[str]:
             return False
 
     substrate = adapter.substrate.name
+    bench = adapter.spec.name.split("-", 1)[0]
     opencode = config.needs_opencode(substrate)
+    # The custom benchmark is the one that can run without a verdict, so a judge is optional
+    # there: requiring one would make "no ground truth needed" false at the first check.
+    needs_judge = judge and bench != "custom"
     checks = [
-        lambda: config.validate_models(substrate=substrate, judge=judge),
+        lambda: config.validate_models(substrate=substrate, judge=needs_judge),
         adapter.tasks,
     ]
     if opencode:
@@ -61,7 +66,6 @@ def check(adapter, *, judge=False) -> list[str]:
         except (OSError, RuntimeError, ValueError) as exc:
             errors.append(str(exc))
 
-    bench = adapter.spec.name.split("-", 1)[0]
     # `custom` has no pinned dataset: its tasks are the user's own directory.
     name = {
         "jb": "job-bench-eval",

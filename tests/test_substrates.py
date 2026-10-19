@@ -20,10 +20,11 @@ from harness2 import config
 from harness2.benchmarks import agent_rollout as AR
 from harness2.benchmarks import custom
 from harness2.benchmarks.custom import CustomAdapter, make_spec, seed_harness
-from harness2.cli import export_harness
+from harness2.cli import export_harness, setup
 from harness2.core import runmark as RM
 from harness2.core import tree as HT
-from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec
+from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec, resolve_proposer
+from harness2.preflight import check
 from harness2.substrate import dsh, pi, registry
 from harness2.substrate.agent_cli import clip, iter_jsonl, stage_root
 
@@ -767,3 +768,104 @@ class ScrubTests(unittest.TestCase):
             }
         )
         self.assertEqual(env, {"PATH": "/bin", "LANG": "C"})
+
+
+class ProposerChannelTests(unittest.TestCase):
+    """An executor that brings its own agent CLI must not demand an OpenCode checkout."""
+
+    def _resolve(self, substrate, *, configured):
+        with (
+            patch.object(config, "_IMPROVER_CHANNEL_SET", bool(configured)),
+            patch.object(config, "DEFAULT_PROPOSER_CHANNEL", configured or "opencode"),
+            patch.object(
+                config,
+                "PROPOSER_MODEL_BY_CHANNEL",
+                {
+                    "opencode": "p/m",
+                    "claude_cli": "p/m",
+                    "pi": "p/m",
+                },
+            ),
+        ):
+            return resolve_proposer(substrate)
+
+    def test_an_unset_channel_follows_the_executor(self):
+        self.assertEqual(self._resolve("pi", configured="").kind, "pi")
+        self.assertEqual(self._resolve("dsh", configured="").kind, "pi")
+        self.assertEqual(self._resolve("oc", configured="").kind, "opencode")
+        self.assertEqual(self._resolve("cx", configured="").kind, "opencode")
+
+    def test_an_explicit_channel_always_wins(self):
+        self.assertEqual(self._resolve("pi", configured="opencode").kind, "opencode")
+        self.assertEqual(self._resolve("oc", configured="pi").kind, "pi")
+
+    def test_opencode_is_not_required_for_a_pi_run(self):
+        with (
+            patch.object(config, "_IMPROVER_CHANNEL_SET", False),
+            patch.object(config, "DEFAULT_PROPOSER_CHANNEL", "opencode"),
+        ):
+            self.assertFalse(config.needs_opencode("pi"))
+            self.assertFalse(config.needs_opencode("dsh"))
+            self.assertTrue(config.needs_opencode("oc"))
+            self.assertTrue(config.needs_opencode("cx"))
+
+
+class CustomSetupTests(unittest.TestCase):
+    def test_setup_for_custom_does_not_crash(self):
+        with patch("sys.stdout"):
+            self.assertEqual(setup.main(["custom", "--substrate", "pi", "--dry-run"]), 0)
+
+    def test_setup_for_custom_refuses_a_substrate_it_cannot_run(self):
+        # setup reports a refusal as an exit status with its reason, like every other failure
+        with patch("sys.stdout"), patch("sys.stderr") as err:
+            with self.assertRaises(SystemExit) as ctx:
+                setup.main(["custom", "--substrate", "oc", "--dry-run"])
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("pi or dsh", " ".join(str(c) for c in err.mock_calls))
+
+    def test_a_custom_run_needs_no_judge(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "area" / "t").mkdir(parents=True)
+            (root / "area" / "t" / "TASK.md").write_text("do it", encoding="utf-8")
+            a = CustomAdapter(
+                "pi",
+                tasks_root=root,
+                seed_dir=seed_harness(root / "seed"),
+                runs_root=root / "runs",
+            )
+            with (
+                patch.object(a.substrate, "preflight", lambda: None),
+                patch.object(config, "JUDGE_MODEL", ""),
+                patch.object(config, "SOLVER_MODEL_PI", "p/m"),
+                patch.object(config, "IMPROVER_MODEL", "p/m"),
+            ):
+                errors = check(a, judge=True)
+            self.assertEqual([e for e in errors if "JUDGE" in e], [])
+
+    def test_a_thin_area_is_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "only" / "t").mkdir(parents=True)
+            (root / "only" / "t" / "TASK.md").write_text("do it", encoding="utf-8")
+            a = CustomAdapter("pi", tasks_root=root)
+            with patch("sys.stdout") as out:
+                a._warn_thin_areas()
+            self.assertIn("fewer than two tasks", " ".join(str(c) for c in out.mock_calls))
+
+
+class UpstreamNoticeTests(unittest.TestCase):
+    def test_every_changed_upstream_module_carries_a_modification_notice(self):
+        root = Path(__file__).resolve().parents[1]
+        google_headed = [
+            p
+            for p in (root / "harness2").rglob("*.py")
+            if "Copyright 2026 Google LLC" in p.read_text(encoding="utf-8", errors="replace")
+        ]
+        self.assertTrue(google_headed, "expected upstream files to still carry their header")
+        changed = [
+            p
+            for p in google_headed
+            if "Modified in the noetion/harness2 fork" in p.read_text(encoding="utf-8")
+        ]
+        self.assertGreaterEqual(len(changed), 10)

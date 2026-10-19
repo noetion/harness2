@@ -1,0 +1,35 @@
+# Credential-free checks: the test suite and the demo never call a model, so this
+# workflow needs no secrets and cannot spend money. It does not exercise rollouts.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install -e '.[render]'
+      - name: Lint
+        run: uvx ruff@0.17.1 check .
+      - name: Test
+        run: .venv/bin/python -m unittest discover -s tests -v
+      - name: Demo (deterministic, no credentials)
+        run: .venv/bin/harness2-demo --output runs/demo --k 2
+      - name: Benchmark CLIs answer --help
+        run: |
+          .venv/bin/harness2 --help > /dev/null
+          .venv/bin/harness2-check --help > /dev/null
+          .venv/bin/harness2-judge --help > /dev/null
+          .venv/bin/harness2-export --help > /dev/null
+      - name: Setup for the custom benchmark does not need a dataset
+        run: .venv/bin/harness2-setup custom --substrate pi --dry-run

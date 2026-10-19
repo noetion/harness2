@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified in the noetion/harness2 fork (2026); see NOTICE.
 
 """Install a benchmark's pinned tools, runner overlays, dependencies, and data."""
 
@@ -44,7 +45,6 @@ def main(argv=None):
         p.exit(1, f"setup failed: {missing}\n")
     if missing:
         print(f"Note: {missing}")
-    name = {"jb": "job-bench-eval", "lab": "harvey-labs", "wb": "workbuddy-bench"}[args.benchmark]
     try:
         if not dry:
             for binary in ("git", "uv", "npm") + (
@@ -69,6 +69,9 @@ def main(argv=None):
                 flush=True,
             )
             return 0
+        name = {"jb": "job-bench-eval", "lab": "harvey-labs", "wb": "workbuddy-bench"}[
+            args.benchmark
+        ]
         if config.needs_opencode(args.substrate):
             install.clone("opencode", dry_run=dry)
             install.patch("opencode", dry_run=dry)
@@ -126,7 +129,7 @@ def main(argv=None):
                 )
         if args.substrate == "cx":
             install.codex(dry_run=dry)
-        if args.substrate == "pi" or config.DEFAULT_PROPOSER_CHANNEL == "pi":
+        if args.substrate == "pi" or config.proposer_channel(args.substrate) == "pi":
             install.pi(dry_run=dry)
         if args.substrate == "dsh":
             install.dsh(dry_run=dry)

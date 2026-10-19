@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified in the noetion/harness2 fork (2026); see NOTICE.
 
 """Deployment settings and dependency versions. Shell values override .env."""
 
@@ -221,6 +222,7 @@ WB_MAX_JOBS = {"oc": 1, "cx": 1}
 WB_MAX_TRIALS = {"oc": 2, "cx": 2}
 WB_MODEL_CONNECTION = "local_proxy"
 
+_IMPROVER_CHANNEL_SET = bool(env("HARNESS2_IMPROVER_CHANNEL", ""))
 DEFAULT_PROPOSER_CHANNEL = env("HARNESS2_IMPROVER_CHANNEL", "opencode")
 PROPOSER_MODEL_BY_CHANNEL = {
     "opencode": IMPROVER_MODEL,
@@ -232,9 +234,26 @@ TRANSPORT_ATTEMPTS = 2
 PROPOSER_CONCURRENCY = 2
 
 
+def proposer_channel(substrate: str) -> str:
+    """The improver channel for a cell.
+
+    An explicit HARNESS2_IMPROVER_CHANNEL always wins. Left unset, a substrate that brings
+    its own agent CLI improves with Pi -- an OpenCode checkout is a large dependency to
+    demand from someone who asked for a Pi run, and setup for these substrates does not
+    install one.
+    """
+    if _IMPROVER_CHANNEL_SET:
+        return DEFAULT_PROPOSER_CHANNEL
+    from .substrate import registry as SUB  # local: registry builds on this module
+
+    if SUB.is_agent_cli(substrate):
+        return "pi"
+    return DEFAULT_PROPOSER_CHANNEL
+
+
 def needs_opencode(substrate: str) -> bool:
     """OpenCode is needed when it executes rollouts or runs the improver sessions."""
-    return substrate == "oc" or DEFAULT_PROPOSER_CHANNEL == "opencode"
+    return substrate == "oc" or proposer_channel(substrate) == "opencode"
 
 
 def validate_models(*, substrate: str = "", judge: bool = False) -> None:

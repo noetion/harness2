@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified in the noetion/harness2 fork (2026); see NOTICE.
 
 """Every prompt the method sends. Benchmark text arrives as values, never as branches.
 

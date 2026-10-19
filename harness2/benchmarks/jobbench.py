@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# Modified in the noetion/harness2 fork (2026); see NOTICE.
 
 """JobBench adapter: tasks, splits, prompts, launcher bodies, deliverables and scores.
 
@@ -36,7 +37,7 @@ from pathlib import Path
 from .. import config
 from ..core import runmark as RM
 from ..core import tree as HT
-from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
+from ..core.spec import BenchPrompts, BenchSpec, resolve_proposer
 from ..install import codex_config_error
 from ..substrate import registry as SUB
 from ..substrate.base import Install, RunRequest
@@ -506,9 +507,9 @@ _INSTALL_MODE = {
 _DEFAULT_TIMEOUT = {"oc": 2400, "cx": 3600, "pi": 2400, "dsh": 2400}
 
 
-def _channels() -> dict:
-    """Improver channel, resolved through core.spec.resolve_channel_model."""
-    ch = resolve_channel_model(None, None, effort="high")
+def _channels(substrate: str) -> dict:
+    """Improver channel for this executor, resolved through core.spec."""
+    ch = resolve_proposer(substrate, effort="high")
     return {"proposer": ch, "selector": ch}
 
 
@@ -522,7 +523,7 @@ def make_spec(substrate: str) -> BenchSpec:
         runs_root=config.RUNS / "jb",
         install_mode=_INSTALL_MODE[substrate],
         prompts=jobbench_prompts(),
-        channels=_channels(),
+        channels=_channels(substrate),
         domain_word="profession",
         leak_globs=("RUBRICS.json", "eval_result/**", "expected/**", "reference/**"),
         allow_subagents=(substrate == "oc"),
