@@ -224,7 +224,17 @@ rather than zero. OpenCode and Codex are not supported here, because they need a
 benchmark-owned checkout, render step and credential file.
 
 Use several tasks per area. A single task gives the improver one example to
-reason from, and it will write the specifics of that example into the harness.
+reason from, and it will write the specifics of that example into the harness;
+`harness2-check` warns when an area holds only one.
+
+A rollout is not a sandbox: `pi` and `dsh` run with your permissions, and the
+assignment only *tells* the agent to stay in its workspace. A vague task invites
+it to look around the machine, and if it reads anything that looks like a verdict
+the harness refuses to proceed rather than let it into the improver's context. Keep
+`HARNESS2_SCRATCH` and `HARNESS2_RUNS_DIR` away from the code you are refining,
+and if you want the boundary enforced rather than requested, that is exactly what
+the in-loop lever is for: an extension or plugin can refuse a read outside the
+workspace, and the prompt surfaces document how.
 
 ### Carrying a harness between runs
 
