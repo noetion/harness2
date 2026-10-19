@@ -28,7 +28,7 @@ from typing import Mapping
 
 from .. import config
 from ..core.tree import SurfaceSpec
-from .agent_cli import clip, finish_render, iter_jsonl, stage_root
+from .agent_cli import clip, finish_render, iter_jsonl, scrubbed_env, stage_root
 from .base import Install, Launcher, RunRequest
 
 DSH_VERSION = "0.2.1-rc.2"
@@ -99,12 +99,21 @@ def dsh_bin() -> str:
     return shutil.which("dsh") or "dsh"
 
 
+# The provider route dsh registers for DeepSeek's own API key. A bare model id means this.
+DEEPSEEK_PROVIDER = "deepseek-official"
+
+
 def split_model(model: str) -> tuple[str, str]:
-    """'provider/model' -> (provider, model); a bare id means DeepSeek's own API."""
+    """'provider/model' -> (provider, model); a bare id means DeepSeek's own API route.
+
+    The route name is `deepseek-official`, not `deepseek`: dsh registers its API-key adapter
+    under that name, and a model pointed at anything else fails with NO_ADAPTER before the
+    first token.
+    """
     if "/" in model:
         provider, _, name = model.partition("/")
         return provider, name
-    return "deepseek", model
+    return DEEPSEEK_PROVIDER, model
 
 
 def overlay_rows(model: str, *, effort: str, plugins: list[Path]) -> list[dict]:
@@ -114,7 +123,7 @@ def overlay_rows(model: str, *, effort: str, plugins: list[Path]) -> list[dict]:
     if effort:
         row["reasoningEffort"] = effort
     rows: list[dict] = [{"id": "agent-default-model", "config": row}]
-    if provider != "deepseek":
+    if provider != DEEPSEEK_PROVIDER:
         rows.append({"id": "llm-pi-ai", "config": {"providers": {provider: {}}}})
     if plugins:
         rows.append(
@@ -229,6 +238,9 @@ class DshSubstrate:
                     r = subprocess.run(
                         [node, "--input-type=module", "-e", _CHECK_PLUGIN_JS, str(path)],
                         cwd=td,
+                        # Importing a plugin runs improver-authored code, so it gets no
+                        # credentials and no ambient dsh configuration.
+                        env=scrubbed_env(),
                         capture_output=True,
                         text=True,
                         timeout=60,
@@ -344,6 +356,7 @@ def summarise(path: Path) -> dict:
                 s["input_tokens"] += int(u.get("inputTokens") or 0)
                 s["output_tokens"] += int(u.get("outputTokens") or 0)
                 s["cached_input_tokens"] += int(u.get("cacheReadTokens") or 0)
+                s["reasoning_tokens"] += int(u.get("reasoningTokens") or 0)
     return s
 
 

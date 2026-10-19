@@ -55,8 +55,14 @@ def main(argv=None):
         if args.benchmark == "wb" and args.substrate in ("pi", "dsh"):
             raise ValueError("WorkBuddy supports --substrate oc or cx only")
         if args.benchmark == "custom":
-            install.pi(dry_run=dry) if args.substrate == "pi" else None
-            install.dsh(dry_run=dry) if args.substrate == "dsh" else None
+            if args.substrate == "pi":
+                install.pi(dry_run=dry)
+            elif args.substrate == "dsh":
+                install.dsh(dry_run=dry)
+            else:
+                raise ValueError(
+                    f"the custom benchmark runs --substrate pi or dsh, got {args.substrate!r}"
+                )
             print(
                 "The custom benchmark needs no dataset: point HARNESS2_CUSTOM_TASKS at your "
                 "own <area>/<task>/TASK.md directories, then run harness2-check.",

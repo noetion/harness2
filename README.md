@@ -171,10 +171,12 @@ credentials from the provider's environment variable (`OPENCODE_API_KEY`,
 `DEEPSEEK_API_KEY`, ...). Any `provider/model` your CLI can reach works; nothing
 here is tied to a particular vendor.
 
-Both substrates also validate a proposed harness before it is adopted: Pi
-refuses to start with a broken extension or an unparseable skill name, and dsh
-drops a plugin that will not import, so a tree that could never produce a
-rollout is rejected while it is still a proposal.
+Both substrates also validate a proposed harness while it is still a proposal,
+by loading it offline with credentials stripped: Pi exits before its first model
+call if an extension will not load, and silently drops a skill whose name it
+cannot parse; dsh refuses to import a plugin that is not a module exporting
+`name` and `apply`. Either failure is reported back to the improver instead of
+being paid for as a rollout.
 
 ## Your own tasks
 

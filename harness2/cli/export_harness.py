@@ -85,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     dest = args.to.expanduser().resolve()
+    if dest.exists() and not dest.is_dir():
+        print(f"FAIL: {dest} exists and is not a directory")
+        return 1
     if dest.exists() and any(dest.iterdir()) and not args.force:
         print(f"FAIL: {dest} is not empty; pass --force to overwrite it")
         return 1

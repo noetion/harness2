@@ -189,7 +189,9 @@ harness2-setup jb --substrate dsh    # installs 0.2.1-rc.2 into dependencies/dsh
 harness2-check --bench jb --substrate dsh
 ```
 
-`HARNESS2_DSH_BIN` overrides the binary and `HARNESS2_DSH_MODEL` the model. Each
+`HARNESS2_DSH_BIN` overrides the binary and `HARNESS2_DSH_MODEL` the model; a bare model id
+resolves to dsh's `deepseek-official` route, which is where it registers its DeepSeek API-key
+adapter. Each
 rollout gets an empty `DSH_HOME` and `DSH_AGENTS_HOME`, plus a `--patch` overlay
 that points dsh at the model and loads the harness's own plugins.
 

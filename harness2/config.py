@@ -260,8 +260,12 @@ def validate_models(*, substrate: str = "", judge: bool = False) -> None:
         )
     if name in SUB.MODEL_NEEDS_PROVIDER and "/" not in model:
         raise ConfigError(f"{SUB.MODEL_VARS[name]} must be provider/model, got {model!r}")
+    if not IMPROVER_MODEL:
+        raise ConfigError(
+            "Set HARNESS2_IMPROVER_MODEL for the improver sessions (see .env.example)"
+        )
     if "/" not in IMPROVER_MODEL:
-        raise ConfigError("IMPROVER_MODEL must use OpenCode's provider/model syntax")
+        raise ConfigError(f"HARNESS2_IMPROVER_MODEL must be provider/model, got {IMPROVER_MODEL!r}")
     if any(m.startswith("google-vertex") for m in (model, IMPROVER_MODEL)):
         if not VERTEX_PROJECT:
             raise ConfigError("Set GOOGLE_CLOUD_PROJECT for Vertex AI")

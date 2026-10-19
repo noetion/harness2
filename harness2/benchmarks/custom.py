@@ -33,9 +33,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config
+from ..core import runmark as RM
 from ..core import tree as HT
 from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
 from ..substrate import registry as SUB
+from ..substrate.agent_cli import clip
 from ..substrate.base import Install
 from .agent_rollout import copy_tree_files, run_rollout
 
@@ -61,11 +63,6 @@ IMPORTANT:
 - Work only inside {workspace} (plus online sources the task asks you to consult).
 - If the task is ambiguous, say which reading you chose and why before you proceed.
 - If a file cannot be read directly (.xlsx, .docx, .db, .pptx), use code to extract it."""
-
-SEED_AGENTS_MD = """\
-You are a careful generalist. Read the assignment before you start, do the work it asks for,
-and leave the deliverables in the output directory it names.
-"""
 
 _JUDGE_PROMPT = """\
 You are rating one deliverable against the assignment that produced it. There is no reference
@@ -112,7 +109,6 @@ def make_spec(substrate: str, *, runs_root: Path | None = None) -> BenchSpec:
         prompts=custom_prompts(),
         channels=_channels(),
         domain_word="area",
-        allow_subagents=True,
     )
 
 
@@ -171,6 +167,19 @@ class CustomAdapter:
 
     def base_harness(self) -> Path:
         """The seed this recursion starts from: a tree you exported, or the built-in one."""
+        manifest = self.seed_dir / "harness2.json"
+        if manifest.is_file():
+            try:
+                exported_for = json.loads(manifest.read_text(encoding="utf-8")).get("substrate")
+            except (OSError, ValueError):
+                exported_for = None
+            if exported_for and exported_for != self.substrate.name:
+                # Components the other surface allows do not exist on this one, so the tree
+                # would load with those silently missing.
+                _why(
+                    f"seed {self.seed_dir} was exported for {exported_for!r} but is being run "
+                    f"on {self.substrate.name!r}; components {exported_for} allows may be dropped"
+                )
         if not HT.is_tree(self.substrate.surface(), self.seed_dir):
             raise FileNotFoundError(
                 f"seed harness {self.seed_dir} is not a {self.substrate.surface().name} tree "
@@ -221,6 +230,9 @@ class CustomAdapter:
         def collect(ws: Path) -> list[str]:
             return copy_tree_files(ws / "output", out)
 
+        # A re-roll must not be able to inherit the previous attempt's artifacts: that would
+        # let a dead attempt be marked finished and graded on somebody else's output.
+        shutil.rmtree(out, ignore_errors=True)
         run_rollout(
             self.substrate,
             install=install,
@@ -237,19 +249,26 @@ class CustomAdapter:
                 f"no deliverable for {task_id} @ {label} (see {traj}); left UNMARKED so the "
                 f"next attempt re-rolls instead of being taken as a real zero"
             )
-        (traj / ".adapt_complete").write_text("", encoding="utf-8")
         return [out]
 
     def execute(
         self, task_id: str, harness_dir: Path | None, run_id: str, *, timeout: int | None = None
     ) -> Path:
         label = run_id.replace("/", "__")
-        out = self._out_dir(task_id, label)
-        if (self._traj_dir(task_id, label) / ".adapt_complete").is_file() and self.delivered(out):
-            return out
+        out, traj = self._out_dir(task_id, label), self._traj_dir(task_id, label)
         tree_dir = Path(harness_dir) if harness_dir else self.base_harness()
+        # The marker names the harness it was produced under, so a re-roll with a changed
+        # harness re-executes instead of serving the old tree's output.
+        if RM.is_complete(traj, harness_dir=tree_dir) and self.delivered(out):
+            return out
         install = self.substrate.materialise(tree_dir, self.spec, {})
-        self.substrate.execute(task_id, install, [run_id], int(timeout or self.timeout))
+        try:
+            self.substrate.execute(task_id, install, [run_id], int(timeout or self.timeout))
+        finally:
+            shutil.rmtree(install.staging_dir, ignore_errors=True)
+        if not self.delivered(out):
+            raise RuntimeError(f"no deliverable for {task_id} @ {label} after execution")
+        RM.mark_complete(traj, run_id=run_id, harness_dir=tree_dir)
         return out
 
     # -- reading back ------------------------------------------------------------------
@@ -339,22 +358,26 @@ class CustomAdapter:
         """Rate a deliverable against its own assignment; no reference answer involved."""
         base, key, model = config.JB_JUDGE_API_BASE, config.JB_JUDGE_API_KEY, config.JUDGE_MODEL
         if not (base and key and model):
+            _why("no judge configured (HARNESS2_JUDGE_MODEL / _BASE_URL / _API_KEY); unmeasured")
             return None
         deliverable = self.deliverable_text(run_dir)
         if not deliverable.strip():
+            _why("the deliverable is empty, so there is nothing to rate")
             return None
         prompt = _JUDGE_PROMPT.format(
-            task=self.task_prompt(task_id), deliverable=deliverable[:120_000]
+            task=self.task_prompt(task_id), deliverable=clip(deliverable, 120_000)
         )
         try:
             got = _chat(base, key, model, prompt, config.judge_headers(base))
             message = got["choices"][0]["message"] or {}
             text = message.get("content") or message.get("reasoning_content") or ""
             rating = json.loads(_json_slice(text))
-        except (OSError, KeyError, IndexError, TypeError, ValueError, urllib.error.URLError):
+        except (OSError, KeyError, IndexError, TypeError, ValueError, urllib.error.URLError) as exc:
+            _why(f"the judge call failed ({type(exc).__name__}: {str(exc)[:200]}); unmeasured")
             return None
         score = int(rating.get("score", -1))
         if not 0 <= score <= 100:
+            _why(f"the judge replied without a 0-100 score ({str(rating)[:200]}); unmeasured")
             return None
         return {
             "n_passed": score,
@@ -364,6 +387,11 @@ class CustomAdapter:
             "reason": str(rating.get("rationale", ""))[:2000],
             "judge": model,
         }
+
+
+def _why(message: str) -> None:
+    """Say why a result is unmeasured, so a blank column is explainable."""
+    print(f"  [custom] {message}", flush=True)
 
 
 def _stamp() -> str:
@@ -411,10 +439,10 @@ def _chat(base_url: str, api_key: str, model: str, prompt: str, headers: dict[st
 
 
 def seed_harness(dest: Path) -> Path:
-    """Write the built-in seed (one AGENTS.md) and return the directory."""
+    """Copy the built-in seed (one AGENTS.md) to `dest` and return it."""
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "AGENTS.md").write_text(SEED_AGENTS_MD, encoding="utf-8")
+    shutil.copy2(config.SEEDS / "custom_default" / "AGENTS.md", dest / "AGENTS.md")
     return dest
 
 
@@ -422,7 +450,6 @@ __all__ = [
     "CustomAdapter",
     "DEFAULT_TIMEOUT",
     "PROMPT",
-    "SEED_AGENTS_MD",
     "custom_prompts",
     "make_spec",
     "seed_harness",

@@ -28,7 +28,7 @@ from typing import Mapping
 
 from .. import config
 from ..core.tree import SurfaceSpec
-from .agent_cli import AGENT_ROOT, clip, finish_render, iter_jsonl, stage_root
+from .agent_cli import AGENT_ROOT, clip, finish_render, iter_jsonl, scrubbed_env, stage_root
 from .base import Install, Launcher, RunRequest
 
 PI_SURFACE = SurfaceSpec(
@@ -252,7 +252,7 @@ def check_extensions(exts: Mapping[str, str]) -> list[str]:
             path = root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(src, encoding="utf-8")
-            env = {k: v for k, v in os.environ.items() if not k.endswith(("_API_KEY", "_TOKEN"))}
+            env = scrubbed_env()
             env.update(
                 PI_CODING_AGENT_DIR=str(root / "agent"),
                 PI_OFFLINE="1",
@@ -287,8 +287,14 @@ def check_extensions(exts: Mapping[str, str]) -> list[str]:
             out = (r.stderr or "") + (r.stdout or "")
             if _EXT_LOAD_FAIL in out:
                 line = next((ln for ln in out.splitlines() if _EXT_LOAD_FAIL in ln), out)
-                detail = line.split(_EXT_LOAD_FAIL, 1)[-1].lstrip(": ").strip()
-                detail = detail.replace(str(path), rel).replace(str(root), ".")
+                # The line is `Error: Failed to load extension "<path>": <why>`; keep the why.
+                detail = line.rsplit(_EXT_LOAD_FAIL, 1)[-1].lstrip(": ").strip()
+                if not detail:
+                    detail = next(
+                        (ln.strip() for ln in out.splitlines() if ln.strip() and ln is not line),
+                        "",
+                    )
+                detail = detail.replace(str(path), rel).replace(str(root), ".").replace('"', "")
                 errs.append(
                     f"{rel} fails to load in Pi ({detail[:300]}); Pi refuses to start with a "
                     f"broken extension, so this harness would produce no rollout at all"
@@ -362,6 +368,7 @@ def summarise(path: Path) -> dict:
         "reasoning_tokens": 0,
         "cost_usd": 0.0,
         "final_text": "",
+        "model_actual": "",
     }
     for ev in iter_jsonl(path):
         s["n_events"] += 1
@@ -378,6 +385,8 @@ def summarise(path: Path) -> dict:
                 continue
             if msg.get("stopReason") == "error":
                 s["errors"] += 1
+            if not s["model_actual"] and msg.get("provider") and msg.get("model"):
+                s["model_actual"] = f"{msg['provider']}/{msg['model']}"
             u = msg.get("usage") or {}
             s["input_tokens"] += int(u.get("input") or 0)
             s["output_tokens"] += int(u.get("output") or 0)

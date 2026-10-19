@@ -10,6 +10,7 @@ reject an unloadable harness, and the export/import round trip.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,8 +18,10 @@ from unittest.mock import patch
 
 from harness2 import config
 from harness2.benchmarks import agent_rollout as AR
+from harness2.benchmarks import custom
 from harness2.benchmarks.custom import CustomAdapter, make_spec, seed_harness
 from harness2.cli import export_harness
+from harness2.core import runmark as RM
 from harness2.core import tree as HT
 from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec
 from harness2.substrate import dsh, pi, registry
@@ -233,7 +236,10 @@ class PiRendererTests(unittest.TestCase):
 class DshSubstrateTests(unittest.TestCase):
     def test_model_split(self):
         self.assertEqual(dsh.split_model("opencode-go/x"), ("opencode-go", "x"))
-        self.assertEqual(dsh.split_model("x"), ("deepseek", "x"))
+        # dsh registers its API-key adapter as `deepseek-official`; a bare id that said
+        # `deepseek` fails with NO_ADAPTER before the first token.
+        self.assertEqual(dsh.split_model("x"), ("deepseek-official", "x"))
+        self.assertEqual(dsh.DEEPSEEK_PROVIDER, "deepseek-official")
 
     def test_overlay_carries_model_route_and_plugins(self):
         with tempfile.TemporaryDirectory() as td:
@@ -253,9 +259,15 @@ class DshSubstrateTests(unittest.TestCase):
             self.assertEqual(rows[2]["insert"][0]["name"], str(plugin.resolve()))
 
     def test_native_provider_needs_no_route_row(self):
-        rows = dsh.overlay_rows("deepseek/x", effort="", plugins=[])
+        rows = dsh.overlay_rows("x", effort="", plugins=[])
         self.assertEqual([r.get("id") for r in rows], ["agent-default-model"])
         self.assertNotIn("reasoningEffort", rows[0]["config"])
+        self.assertEqual(rows[0]["config"]["provider"], "deepseek-official")
+        # a prefixed id other than DeepSeek's own needs the pi-ai route registered
+        self.assertEqual(
+            [r.get("id") for r in dsh.overlay_rows("opencode-go/x", effort="", plugins=[])],
+            ["agent-default-model", "llm-pi-ai"],
+        )
 
     def test_overlay_written_from_the_installed_tree(self):
         with tempfile.TemporaryDirectory() as td:
@@ -528,3 +540,230 @@ class ExportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeSubstrate:
+    """A substrate whose rollout is whatever the test wants, for runner-level rules."""
+
+    name = "pi"
+
+    def __init__(self, events, *, model_actual="", sleep=0):
+        self._events = events
+        self._model_actual = model_actual
+        self._sleep = sleep
+
+    def surface(self):
+        return pi.PI_SURFACE
+
+    def invocation(self, prompt, workspace, scratch, model, *, effort, base_env):
+        code = f"import time; time.sleep({self._sleep})" if self._sleep else "pass"
+        return [sys.executable, "-c", code], {}
+
+    def summarise(self, path):
+        return {
+            "n_events": self._events,
+            "turns": 1,
+            "tool_calls": 0,
+            "errors": 0,
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "cached_input_tokens": 0,
+            "reasoning_tokens": 0,
+            "cost_usd": 0.0,
+            "final_text": "",
+            "model_actual": self._model_actual,
+        }
+
+
+def _install(td: Path):
+    from harness2.substrate.base import Install
+
+    staged = td / "staged"
+    staged.mkdir(parents=True, exist_ok=True)
+    (staged / "AGENTS.md").write_text("role", encoding="utf-8")
+    return Install(staging_dir=staged, fingerprint="f", extras={})
+
+
+class RunnerRuleTests(unittest.TestCase):
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.root = Path(self._td.name)
+        self._patches = [
+            patch.object(config, "SCRATCH", self.root / "scratch"),
+            patch.object(config, "SOLVER_EFFORT", "high"),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in reversed(self._patches):
+            p.stop()
+        self._td.cleanup()
+
+    def _run(self, sub, *, timeout=60, model="p/m", out_name="out.md"):
+        def prepare(ws):
+            return "do it"
+
+        def collect(ws):
+            if out_name:
+                (ws / "output").mkdir(exist_ok=True)
+                (ws / "output" / out_name).write_text("x", encoding="utf-8")
+            return [out_name] if out_name else []
+
+        return AR.run_rollout(
+            sub,
+            install=_install(self.root),
+            run_dir=self.root / "run",
+            label="lbl",
+            model=model,
+            timeout=timeout,
+            prepare=prepare,
+            collect=collect,
+        )
+
+    def test_a_sound_rollout_is_measured(self):
+        m = self._run(FakeSubstrate(5))
+        self.assertEqual(m["exit_code"], 0)
+        self.assertTrue(m["finished_cleanly"])
+        self.assertEqual(m["deliverables"], ["out.md"])
+
+    def test_no_events_is_refused(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run(FakeSubstrate(0))
+        self.assertIn("no events", str(ctx.exception))
+
+    def test_a_substituted_model_is_refused(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run(FakeSubstrate(5, model_actual="p/other"))
+        self.assertIn("but p/m was requested", str(ctx.exception))
+
+    def test_the_reported_model_is_recorded(self):
+        m = self._run(FakeSubstrate(5, model_actual="p/m"))
+        self.assertEqual(m["model_actual"], "p/m")
+
+    def test_a_timed_out_rollout_is_never_measured_as_finished(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run(FakeSubstrate(5, sleep=30), timeout=1)
+        self.assertIn("deadline", str(ctx.exception))
+        # evidence survives the refusal, so the attempt can still be inspected
+        metrics = json.loads((self.root / "run" / "metrics.json").read_text())
+        self.assertTrue(metrics["timed_out"])
+        self.assertFalse(metrics["finished_cleanly"])
+
+    def test_offsurface_files_never_reach_the_workspace(self):
+        staged = self.root / "staged2"
+        (staged / "scripts").mkdir(parents=True)
+        (staged / "AGENTS.md").write_text("role", encoding="utf-8")
+        (staged / "notes.txt").write_text("no", encoding="utf-8")
+        from harness2.substrate.base import Install
+
+        ws = self.root / "ws"
+        ws.mkdir()
+        installed = AR.install_harness(
+            FakeSubstrate(1), Install(staging_dir=staged, fingerprint="f", extras={}), ws
+        )
+        self.assertEqual(installed, ["AGENTS.md"])
+        self.assertFalse((ws / "notes.txt").exists())
+
+
+class CustomMarkerTests(unittest.TestCase):
+    """The real launcher path, with only the model call stubbed out."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.root = Path(self._td.name)
+        (self.root / "area" / "t").mkdir(parents=True)
+        (self.root / "area" / "t" / "TASK.md").write_text("do it", encoding="utf-8")
+        self.seed = seed_harness(self.root / "seed")
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _adapter(self):
+        return CustomAdapter(
+            "pi", tasks_root=self.root, seed_dir=self.seed, runs_root=self.root / "runs"
+        )
+
+    def _rollout(self, a, *, produce):
+        """A stand-in for run_rollout that exercises prepare() and collect() for real."""
+        calls = []
+
+        def fake(substrate, *, install, run_dir, label, model, timeout, prepare, collect, **_):
+            calls.append(label)
+            ws = Path(tempfile.mkdtemp())
+            prepare(ws)
+            if produce:
+                (ws / "output").mkdir(exist_ok=True)
+                (ws / "output" / "g.md").write_text("good", encoding="utf-8")
+            collect(ws)
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "metrics.json").write_text("{}", encoding="utf-8")
+            return {"deliverables": []}
+
+        return fake, calls
+
+    def test_a_finished_rollout_is_marked_and_reused(self):
+        a = self._adapter()
+        fake, calls = self._rollout(a, produce=True)
+        with patch.object(custom, "run_rollout", fake):
+            out = a.execute("area/t", None, "area/t/base1")
+            self.assertTrue(a.delivered(out))
+            self.assertEqual(len(calls), 1)
+            a.execute("area/t", None, "area/t/base1")
+        self.assertEqual(len(calls), 1, "a finished rollout must not run twice")
+
+    def test_an_empty_rollout_is_refused_and_left_unmarked(self):
+        a = self._adapter()
+        fake, _ = self._rollout(a, produce=False)
+        with patch.object(custom, "run_rollout", fake), self.assertRaises(RuntimeError):
+            a.execute("area/t", None, "area/t/base1")
+        mark = a._traj_dir("area/t", "area__t__base1")
+        self.assertFalse((mark / RM.MARK).exists(), "a refused rollout must stay unmarked")
+
+    def test_a_re_roll_cannot_inherit_the_previous_attempt(self):
+        a = self._adapter()
+        good, _ = self._rollout(a, produce=True)
+        with patch.object(custom, "run_rollout", good):
+            out = a.execute("area/t", None, "area/t/base1")
+        self.assertTrue((out / "g.md").is_file())
+
+        # Same task and run id, a DIFFERENT harness, and an attempt that writes nothing:
+        # without clearing the output dir this would be marked done and graded on g.md.
+        other = self.root / "seed2"
+        other.mkdir()
+        (other / "AGENTS.md").write_text("a different role", encoding="utf-8")
+        a2 = CustomAdapter("pi", tasks_root=self.root, seed_dir=other, runs_root=self.root / "runs")
+        empty, _ = self._rollout(a2, produce=False)
+        with patch.object(custom, "run_rollout", empty), self.assertRaises(RuntimeError):
+            a2.execute("area/t", None, "area/t/base1")
+        self.assertFalse((out / "g.md").exists(), "the stale artifact would be graded again")
+
+    def test_a_changed_harness_rerolls_the_same_run_id(self):
+        a = self._adapter()
+        fake, calls = self._rollout(a, produce=True)
+        other = self.root / "seed2"
+        other.mkdir()
+        (other / "AGENTS.md").write_text("a different role", encoding="utf-8")
+        with patch.object(custom, "run_rollout", fake):
+            a.execute("area/t", None, "area/t/base1")
+            a.seed_dir = other
+            a.execute("area/t", None, "area/t/base1")
+        self.assertEqual(len(calls), 2)
+
+
+class ScrubTests(unittest.TestCase):
+    def test_credentials_are_stripped_before_a_load_check(self):
+        from harness2.substrate.agent_cli import scrubbed_env
+
+        env = scrubbed_env(
+            {
+                "OPENCODE_API_KEY": "a",
+                "AWS_SECRET_ACCESS_KEY": "b",
+                "GOOGLE_APPLICATION_CREDENTIALS": "c",
+                "DSH_HOME": "d",
+                "GITHUB_TOKEN": "e",
+                "PATH": "/bin",
+                "LANG": "C",
+            }
+        )
+        self.assertEqual(env, {"PATH": "/bin", "LANG": "C"})

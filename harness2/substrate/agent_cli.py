@@ -66,6 +66,45 @@ def finish_render(lines: list[str], max_chars: int) -> str:
     return rendered
 
 
+# Credentials that must not reach a process that only loads syntax. Matched by prefix and by
+# suffix, because a scrubber that misses one turns a validation step into a paid call.
+_SECRET_PREFIXES = (
+    "AWS_",
+    "AZURE_",
+    "GOOGLE_",
+    "GCP_",
+    "ANTHROPIC_",
+    "OPENAI_",
+    "OPENCODE_",
+    "DEEPSEEK_",
+    "DSH_",
+    "PI_",
+)
+_SECRET_SUFFIXES = (
+    "_API_KEY",
+    "_TOKEN",
+    "_SECRET",
+    "_SECRET_KEY",
+    "_PASSWORD",
+    "_CREDENTIALS",
+    "_ACCESS_KEY",
+)
+
+
+def scrubbed_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment minus anything that looks like a credential.
+
+    Used by the offline load checks: they import code the improver wrote, and must not be
+    able to spend money or reach an account however that code behaves.
+    """
+    out: dict[str, str] = {}
+    for k, v in (os.environ if base is None else base).items():
+        if k.startswith(_SECRET_PREFIXES) or k.endswith(_SECRET_SUFFIXES):
+            continue
+        out[k] = v
+    return out
+
+
 def stage_root(surface: SurfaceSpec, tree_dir: Path, entries: Sequence[str], spec) -> Install:
     """The `agent_root` install: stage exactly `entries` of the tree for a copy to the
     workspace root. There is no render step; the CLI reads these files itself."""
@@ -91,21 +130,6 @@ def stage_root(surface: SurfaceSpec, tree_dir: Path, entries: Sequence[str], spe
         fingerprint=RM.fingerprint(tree_dir),
         extras={"install_mode": AGENT_ROOT},
     )
-
-
-def install_into(staging_dir: Path, workspace: Path) -> list[str]:
-    """Copy a staged harness into a workspace root; return the installed relative paths."""
-    installed: list[str] = []
-    src_root = Path(staging_dir)
-    for f in sorted(src_root.rglob("*")):
-        if not f.is_file() or "__pycache__" in f.parts:
-            continue
-        rel = f.relative_to(src_root)
-        dest = Path(workspace) / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(f, dest)
-        installed.append(rel.as_posix())
-    return installed
 
 
 @dataclass(frozen=True)
@@ -175,8 +199,8 @@ __all__ = [
     "AgentExit",
     "clip",
     "finish_render",
-    "install_into",
     "iter_jsonl",
     "run_agent",
+    "scrubbed_env",
     "stage_root",
 ]

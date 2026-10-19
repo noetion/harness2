@@ -7,7 +7,9 @@ the assignment message, and `collect(workspace)` copies the deliverables to wher
 benchmark grades them. Everything between is shared: install the harness at the workspace
 root, overlay runtime-owned files, run the CLI under a deadline, and record config.json,
 the event stream and metrics.json. metrics.json is written last and only when the stream
-holds events, so a dead model chain is never cached as a finished rollout.
+holds events. A rollout that produced no events, ran out of wall clock, or was answered by a
+model other than the requested one raises, so the caller leaves it unmarked and the next
+attempt re-rolls instead of caching it as a finished result.
 """
 
 from __future__ import annotations
@@ -136,6 +138,13 @@ def run_rollout(
                 f"{substrate.name} produced no events for {label} (exit {ended.returncode}"
                 f"{', timed out' if ended.timed_out else ''}): {tail or 'no stderr'}"
             )
+        claimed = summary.get("model_actual") or ""
+        if claimed and not _same_model(model, claimed):
+            raise RuntimeError(
+                f"{substrate.name} ran {claimed} but {model} was requested for {label}: the "
+                f"CLI resolved the id to a different model, so this rollout would attribute "
+                f"its output to the wrong one. Check {substrate.name.upper()}_MODEL."
+            )
         rc = ended.returncode
         if rc == 0 and not delivered:
             rc = 1
@@ -150,6 +159,7 @@ def run_rollout(
             "cached_input_tokens": summary["cached_input_tokens"],
             "output_tokens": summary["output_tokens"],
             "reasoning_tokens": summary["reasoning_tokens"],
+            "model_actual": summary.get("model_actual") or model,
             "cost_usd": summary["cost_usd"],
             "wall_clock_seconds": ended.wall_s,
             "timed_out": ended.timed_out,
@@ -160,10 +170,28 @@ def run_rollout(
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        if ended.timed_out:
+            # The event stream and metrics above are kept as evidence, but the rollout is not
+            # a finished one: the caller must leave it UNMARKED so the next attempt re-rolls.
+            raise RuntimeError(
+                f"{substrate.name} hit its {int(timeout)}s deadline for {label} "
+                f"({summary['tool_calls']} tool calls, {len(delivered)} deliverable(s)); left "
+                f"UNMARKED so the next attempt re-rolls instead of being taken as a real result"
+            )
         return metrics
     finally:
         if not keep_workspace:
             shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _same_model(requested: str, actual: str) -> bool:
+    """Whether a CLI's resolved model is the one that was asked for.
+
+    `requested` may carry a thinking-level suffix (`provider/id:high`) and `actual` is always
+    `provider/id`, so the suffix is stripped before comparing.
+    """
+    asked = requested.split(":", 1)[0] if requested.count(":") and "/" in requested else requested
+    return asked.strip() == actual.strip()
 
 
 def copy_tree_files(src: Path, dest: Path) -> list[str]:
