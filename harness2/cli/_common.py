@@ -26,10 +26,11 @@ from pathlib import Path
 from ..core import library as LIB
 from ..core import schedule as SCHED
 from ..core.spec import BenchmarkAdapter
+from ..substrate import registry as SUB
 
 BENCHES = ("jb", "wb", "lab")
 WB_SUBSETS = ("office", "web", "code")
-SUBSTRATES = ("oc", "cx")
+SUBSTRATES = SUB.SUBSTRATES
 
 MODES_DEFAULT = "parallel"
 MODES_HELP = (
@@ -51,6 +52,11 @@ def make_adapter(
     if substrate not in SUBSTRATES:
         raise ValueError(f"unknown substrate {substrate!r}; expected one of {SUBSTRATES}")
     if bench == "wb":
+        if SUB.is_agent_cli(substrate):
+            raise ValueError(
+                f"--bench wb runs its agents inside WorkBuddy's own containers and supports "
+                f"--substrate oc or cx only, got {substrate!r}"
+            )
         if subset not in WB_SUBSETS:
             raise ValueError(f"--bench wb needs --subset from {WB_SUBSETS}, got {subset!r} ")
         from ..benchmarks.workbuddy import WbAdapter
@@ -104,7 +110,7 @@ def add_cell_args(p: argparse._ActionsContainer) -> None:
         "--substrate",
         default="oc",
         choices=SUBSTRATES,
-        help="task-executor substrate: oc (opencode) | cx (codex)",
+        help=SUB.HELP,
     )
 
 

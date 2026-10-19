@@ -38,9 +38,11 @@ from ..core import runmark as RM
 from ..core import tree as HT
 from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
 from ..install import codex_config_error
+from ..substrate import registry as SUB
 from ..substrate.base import Install, RunRequest
-from ..substrate.codex import CodexSubstrate
-from ..substrate.opencode import OUTPUT_TOKEN_MAX, OpencodeSubstrate
+from ..substrate.opencode import OUTPUT_TOKEN_MAX
+from .agent_rollout import copy_tree_files, run_rollout
+from .jb_opencode_runner import PROMPT as AGENT_PROMPT
 from .tasks import discover, select
 
 _RUNNER_DIR = config.THIRD_PARTY / "jb_runner"
@@ -494,9 +496,14 @@ def render_opencode_tree(staged: Path, render_dir: Path, ctx: dict) -> None:
             shutil.copy(p, rd / ".opencode" / "plugin" / p.name)
 
 
-_INSTALL_MODE = {"oc": "workspace_agents_md", "cx": "codex_root"}
+_INSTALL_MODE = {
+    "oc": "workspace_agents_md",
+    "cx": "codex_root",
+    "pi": "agent_root",
+    "dsh": "agent_root",
+}
 
-_DEFAULT_TIMEOUT = {"oc": 2400, "cx": 3600}
+_DEFAULT_TIMEOUT = {"oc": 2400, "cx": 3600, "pi": 2400, "dsh": 2400}
 
 
 def _channels() -> dict:
@@ -507,7 +514,9 @@ def _channels() -> dict:
 
 def make_spec(substrate: str) -> BenchSpec:
     if substrate not in _INSTALL_MODE:
-        raise ValueError(f"JobBench substrate must be 'oc' or 'cx', got {substrate!r}")
+        raise ValueError(
+            f"JobBench substrate must be one of {tuple(_INSTALL_MODE)}, got {substrate!r}"
+        )
     return BenchSpec(
         name="jb",
         runs_root=config.RUNS / "jb",
@@ -632,12 +641,10 @@ class JobBenchAdapter:
     ):
         self.split_file = split_file
         self.spec = make_spec(substrate)
-        launcher = self._launch_opencode if substrate == "oc" else self._launch_codex
-        self.substrate = (
-            OpencodeSubstrate(launcher=launcher)
-            if substrate == "oc"
-            else CodexSubstrate(launcher=launcher)
+        launcher = {"oc": self._launch_opencode, "cx": self._launch_codex}.get(
+            substrate, self._launch_agent
         )
+        self.substrate = SUB.make(substrate, launcher)
         self.timeout = int(timeout or _DEFAULT_TIMEOUT[substrate])
         self.store = Path(store_root) if store_root else config.RUNS / "jb" / "dataset"
 
@@ -829,6 +836,43 @@ class JobBenchAdapter:
         self._run_runner(CX_RUNNER, env, wall=t + 600, label=label)
         return [self._require_artifacts(task_id, label)]
 
+    def _launch_agent(self, req: RunRequest, install: Install) -> list[Path]:
+        """Pi / DeepSeek Harness: the task folder and an empty output/ in a scratch
+        workspace, the harness at its root, deliverables copied to model_output/<label>."""
+        task_id, label, t = self._launch_common(req)
+        self.substrate.preflight()
+        out, traj = self._out_dir(task_id, label), self._traj_dir(task_id, label)
+        task_folder = self._ensure_store_task(task_id)
+
+        def prepare(ws: Path) -> str:
+            shutil.copytree(task_folder, ws / "task_folder")
+            (ws / "output").mkdir()
+            return AGENT_PROMPT.format(
+                task_folder=ws / "task_folder", output_dir=ws / "output", workspace=ws
+            )
+
+        def collect(ws: Path) -> list[str]:
+            return [
+                rel
+                for rel in copy_tree_files(ws / "output", out)
+                if not rel.split("/", 1)[0].startswith(".")
+            ]
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_rollout(
+            self.substrate,
+            install=install,
+            run_dir=traj,
+            label=label,
+            model=SUB.solver_model(self.substrate.name),
+            timeout=t,
+            prepare=prepare,
+            collect=collect,
+            path_prepend=[config.JB_JUDGE_PYTHON.parent],
+            stream_name=f"{task_id.replace('/', '_')}_{label}_attempt1_{stamp}.jsonl",
+        )
+        return [self._require_artifacts(task_id, label)]
+
     def _run_runner(self, runner: Path, env: dict, *, wall: int, label: str) -> None:
         """Run the packaged launcher; timeouts leave the rollout incomplete."""
         if not runner.is_file():
@@ -948,6 +992,7 @@ class JobBenchAdapter:
         return str(self._extract(d)["flat"]) if d.is_dir() else ""
 
     def base_harness(self) -> Path:
+        # The Codex base is a bare AGENTS.md, which Pi and DeepSeek Harness read the same way.
         base = OC_BASE_HARNESS if self.substrate.name == "oc" else CX_BASE_HARNESS
         if not HT.is_tree(self.substrate.surface(), base):
             raise FileNotFoundError(
@@ -1131,6 +1176,7 @@ class JobBenchAdapter:
             **os.environ,
             "JUDGE_API_KEY": token,
             "JUDGE_REASONING_EFFORT": config.JB_JUDGE_REASONING_EFFORT,
+            "JUDGE_DEFAULT_HEADERS": json.dumps(config.judge_headers(api_base)),
             "VERTEXAI_LOCATION": config.VERTEX_REGION,
         }
         try:

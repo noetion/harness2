@@ -1,8 +1,19 @@
 diff --git a/eval/judge.py b/eval/judge.py
-index 8412969..1c83bb5 100755
+index 8412969..04be2b6 100755
 --- a/eval/judge.py
 +++ b/eval/judge.py
-@@ -531,6 +531,15 @@ IMPORTANT:
+@@ -421,7 +421,9 @@ def get_openai_client(api_base: str, api_key: str):
+     if not api_key:
+         raise ValueError("No judge API key provided. Set JUDGE_API_KEY.")
+ 
+-    return OpenAI(base_url=api_base, api_key=api_key)
++    # Gateways that route on a header (e.g. a session id) receive it from the caller.
++    headers = json.loads(os.environ.get("JUDGE_DEFAULT_HEADERS") or "{}")
++    return OpenAI(base_url=api_base, api_key=api_key, default_headers=headers or None)
+ 
+ 
+ def parse_judge_json(content: str) -> tuple[dict, str]:
+@@ -531,6 +533,15 @@ IMPORTANT:
      last_error = None
      raw_response = ""
      parse_status = "failed"
@@ -18,7 +29,7 @@ index 8412969..1c83bb5 100755
      for attempt in range(max_retries):
          try:
              client = get_openai_client(api_base, api_key)
-@@ -543,11 +552,20 @@ IMPORTANT:
+@@ -543,11 +554,20 @@ IMPORTANT:
                      },
                      {"role": "user", "content": user_content},
                  ],
