@@ -136,9 +136,9 @@ alternatives, and the [Codex executor](docs/SETUP.md#codex-executor).
 The following example installs LAB and runs one task, then evaluates and reports
 its result. Model-backed runs incur API costs; start with a small task selection.
 
-If you came for what this fork adds: `--substrate pi` or `dsh` runs on any benchmark
-below, and the next two sections cover the substrate choice and the
-no-download `custom` benchmark, which is the shortest path to a real run.
+If you came for what this fork adds: `--substrate pi` or `dsh` runs on JobBench and
+on the `custom` benchmark, and the next two sections cover the substrate choice and
+`custom`, which is the shortest path to a real run.
 
 ```bash
 harness2-setup lab
@@ -212,9 +212,11 @@ gateway is the first thing to smoke-test.
 
 DeepSeek Harness works an assignment in more, smaller steps than Pi, so it needs
 more wall clock: on one JobBench task it took 24 minutes and 191 tool calls,
-against 6 minutes and 42 for Pi; both wrote the same four files. Every substrate
-except Codex has a 2400 s rollout deadline, and the CLI exposes no flag to change
-it, so an unusually large task will reach that limit on dsh first.
+against 6 minutes and 42 for Pi; both wrote the same four files. The rollout
+deadline is 2400 s for Pi and DeepSeek Harness on JobBench (Codex gets 3600 s) and
+2400 s for every substrate on the custom benchmark; LAB allows 3600 s and the CLI
+exposes no flag to change any of them, so an unusually large task reaches that
+limit on dsh first.
 
 Both substrates also validate a proposed harness while it is still a proposal,
 by loading it offline with credentials stripped: Pi exits before its first model

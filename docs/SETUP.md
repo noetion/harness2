@@ -201,9 +201,9 @@ rollout gets an empty `DSH_HOME` and `DSH_AGENTS_HOME`, plus a `--patch` overlay
 that points dsh at the model and loads the harness's own plugins.
 
 Expect dsh to take longer per task than Pi: one JobBench task used 191 tool calls and
-24 minutes against Pi's 42 and 6. The rollout deadline is 2400 s for every substrate
-except Codex (3600 s), and the CLI exposes no flag to change it, so an unusually large
-task will hit that limit on dsh first.
+24 minutes against Pi's 42 and 6. The rollout deadline is 2400 s for Pi and dsh on
+JobBench (Codex gets 3600 s) and 2400 s on the custom benchmark; LAB allows 3600 s and no
+CLI flag changes any of them, so an unusually large task hits that limit on dsh first.
 
 Headless dsh has no approval channel, so `HARNESS2_DSH_PERMISSION_MODE` defaults
 to `danger-full-access`; a stricter mode makes dsh stop at its first write. To
