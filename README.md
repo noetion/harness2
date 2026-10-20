@@ -18,8 +18,9 @@
 > for your own tasks without reference answers, and `harness2-export` /
 > `HARNESS2_CUSTOM_SEED` for carrying a harness between runs. The paper's results below were
 > produced upstream with the OpenCode and Codex executors. The additions here have been run
-> end to end on a handful of tasks with one model provider; they are not benchmarked, and
-> LAB and WorkBuddy-Bench do not support the new substrates.
+> end to end on a handful of tasks with one model provider: a Pi run on one JobBench task, a
+> DeepSeek Harness run on the same task, and a custom-benchmark run of each. That is a
+> smoke test, not a benchmark, and LAB and WorkBuddy-Bench do not support the new substrates.
 
 <p align="center">
   <a href="docs/BENCHMARKS.md#jobbench">
@@ -157,15 +158,16 @@ grading.
 
 ## Executor substrates: Pi and DeepSeek Harness
 
-`--substrate` chooses what runs the task. Four are wired in; `pi` has been
-exercised end to end on JobBench, and `dsh` on the custom benchmark:
+`--substrate` chooses what runs the task. Four are wired in; `pi` has been run
+through the full recursion on JobBench, and `dsh` through one complete JobBench
+rollout and the custom benchmark:
 
 | Substrate | CLI | Notes |
 |---|---|---|
 | `oc` | OpenCode | Upstream default; runs from a pinned checkout through bun |
 | `cx` | Codex CLI | Pinned binary under `dependencies/codex` |
 | `pi` | [Pi](https://github.com/earendil-works/pi) | `npm install -g @earendil-works/pi-coding-agent`, or let setup install 1.3.0 into `dependencies/pi` |
-| `dsh` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Setup installs 0.2.1-rc.2 into `dependencies/dsh` |
+| `dsh` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Setup installs 0.2.1-rc.2 into `dependencies/dsh`; slower per task, see below |
 
 ```bash
 harness2-setup jb --substrate pi
@@ -188,6 +190,12 @@ credentials from the provider's environment variable (`OPENCODE_API_KEY`,
 `DEEPSEEK_API_KEY`, ...). Nothing here is tied to a particular vendor, but only an
 OpenCode Go provider has been exercised end to end, so treat another gateway as
 the first thing to smoke-test.
+
+DeepSeek Harness works an assignment in more, smaller steps than Pi, so it needs
+more wall clock: one JobBench task took 24 minutes and 191 tool calls, against
+6 minutes and 42 for Pi, and both produced the same four deliverables. Its
+default timeout is 2400 s for that reason; raise it with `--timeout` on the
+benchmark if a task is larger.
 
 Both substrates also validate a proposed harness while it is still a proposal,
 by loading it offline with credentials stripped: Pi exits before its first model

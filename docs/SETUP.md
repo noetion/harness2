@@ -197,6 +197,10 @@ which this fork's author had no key for). Each
 rollout gets an empty `DSH_HOME` and `DSH_AGENTS_HOME`, plus a `--patch` overlay
 that points dsh at the model and loads the harness's own plugins.
 
+Expect dsh to take longer per task than Pi: one JobBench task used 191 tool calls and
+24 minutes against Pi's 42 and 6. The benchmark default of 2400 s covers that; a larger
+task may need `--timeout`.
+
 Headless dsh has no approval channel, so `HARNESS2_DSH_PERMISSION_MODE` defaults
 to `danger-full-access`; a stricter mode makes dsh stop at its first write. To
 add profile rows of your own (a gateway, a different route), name an extra
