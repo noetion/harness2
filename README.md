@@ -18,9 +18,10 @@
 > for your own tasks without reference answers, and `harness2-export` /
 > `HARNESS2_CUSTOM_SEED` for carrying a harness between runs. The paper's results below were
 > produced upstream with the OpenCode and Codex executors. The additions here have been run
-> end to end on a handful of tasks with one model provider: a Pi run on one JobBench task, a
-> DeepSeek Harness run on the same task, and a custom-benchmark run of each. That is a
-> smoke test, not a benchmark, and LAB and WorkBuddy-Bench do not support the new substrates.
+> end to end on a handful of tasks: a Pi run through the full refinement loop on one JobBench
+> task, a DeepSeek Harness rollout on the same task, and custom-benchmark rollouts with both
+> substrates - one of them on a second provider, through Pi. That is a smoke test, not a
+> benchmark, and LAB and WorkBuddy-Bench do not support the new substrates.
 
 <p align="center">
   <a href="docs/BENCHMARKS.md#jobbench">

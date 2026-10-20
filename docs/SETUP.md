@@ -177,8 +177,8 @@ harness2-check --bench jb --substrate pi
 `HARNESS2_PI_BIN` overrides the binary; `HARNESS2_PI_MODEL` overrides the model
 and defaults to `HARNESS2_SOLVER_MODEL`. Credentials come from the provider's
 environment variable and each rollout gets an empty `PI_CODING_AGENT_DIR` so saved
-logins are not inherited. Only an OpenCode Go key has been exercised; a provider
-Pi reaches by another route is unverified here.
+logins are not inherited. An OpenCode Go key and a saved OpenAI Codex login have both
+been exercised; the first is what most of the numbers above come from.
 `HARNESS2_PI_AGENT_DIR` points at a dedicated agent directory if you want them.
 
 Pi is also a usable improver channel: `HARNESS2_IMPROVER_CHANNEL=pi`.
