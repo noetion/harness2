@@ -151,8 +151,10 @@ selection without model calls.
 | JobBench | Professional work | `harness2-setup jb` | [JobBench](docs/BENCHMARKS.md#jobbench) |
 | LAB | Legal work | `harness2-setup lab` | [LAB](docs/BENCHMARKS.md#lab) |
 | WorkBuddy-Bench | Office, web, and code | `harness2-setup wb` | [WorkBuddy](docs/BENCHMARKS.md#workbuddy-bench) |
+| Custom | Your own tasks | `harness2-setup custom --substrate pi` | [Your own tasks](#your-own-tasks) |
 
-Choose one benchmark per command. WorkBuddy also takes `--subset office`,
+`Custom` is the fork's addition and takes no dataset. Choose one benchmark per
+command. WorkBuddy also takes `--subset office`,
 `--subset web`, or `--subset code` on every command after setup. The
 [benchmark guides](docs/BENCHMARKS.md) cover each one's data, domains, and
 grading.

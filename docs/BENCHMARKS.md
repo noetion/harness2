@@ -122,3 +122,36 @@ the improver never receives verifier output. Missing verifier results remain
 unscored. Runs live under `runs/wb/<subset>/`.
 
 For Codex, start the bridge with `harness2-bridge --host 0.0.0.0` so that the containers can reach it.
+
+## Custom
+
+Not a released benchmark: a directory of your own assignments, used to refine a
+harness without reference answers. There is no dataset to install and no split.
+
+```
+my-tasks/
+  <area>/
+    <task>/
+      TASK.md        the assignment, verbatim
+      files/         optional reference material
+      check.py       optional check; exits 0 for pass
+```
+
+```bash
+export HARNESS2_CUSTOM_TASKS=~/my-tasks
+harness2-setup custom --substrate pi
+harness2-check --bench custom --substrate pi
+harness2 --bench custom --substrate pi --k 1 --only-domains <area> --max-tasks 1
+harness2-judge --bench custom --substrate pi --k 1
+```
+
+A verdict comes from `check.py` when a task has one, otherwise from a judge rating
+the deliverable against its own assignment, otherwise from nothing - an unmeasured
+run, never a zero. OpenCode and Codex are not supported here, because they need a
+benchmark-owned checkout, render step and credential file.
+
+Put several tasks in an area: with one, the improver writes that task's specifics
+into the harness. `harness2-check` warns when an area is that thin.
+
+See [Your own tasks](../README.md#your-own-tasks) for the full workflow, including
+`harness2-export` and `HARNESS2_CUSTOM_SEED`.

@@ -181,7 +181,10 @@ logins are not inherited. An OpenCode Go key and a saved OpenAI Codex login have
 been exercised; the first is what most of the numbers above come from.
 `HARNESS2_PI_AGENT_DIR` points at a dedicated agent directory if you want them.
 
-Pi is also a usable improver channel: `HARNESS2_IMPROVER_CHANNEL=pi`.
+Pi is also an improver channel, and it is the default one for a `pi` or `dsh` run: the
+improver follows the executor unless `HARNESS2_IMPROVER_CHANNEL` says otherwise. Set it
+explicitly (`pi`, `opencode`, `claude_cli`) to pin a channel; a pinned OpenCode channel needs
+the OpenCode checkout and bun even when the rollouts themselves run on Pi.
 
 ## DeepSeek Harness executor
 
