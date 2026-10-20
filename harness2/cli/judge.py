@@ -163,7 +163,9 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     modes = C.parse_modes(args.modes)
 
-    config.validate_models(substrate=args.substrate, judge=True)
+    # The custom benchmark is the one that can run without a verdict, so a judge model is
+    # only required there when a task has no check.py to decide its own.
+    config.validate_models(substrate=args.substrate, judge=args.bench != "custom")
     adapter = C.make_adapter(args.bench, args.subset, args.substrate)
     ns = C.summary_namespace(adapter, args.k, seed=args.seed)
     ns_dir = C.runs_root_for(adapter) / ns

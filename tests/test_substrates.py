@@ -22,6 +22,7 @@ from harness2.benchmarks import agent_rollout as AR
 from harness2.benchmarks import custom
 from harness2.benchmarks.custom import CustomAdapter, make_spec, seed_harness
 from harness2.cli import export_harness, setup
+from harness2.cli._common import make_adapter
 from harness2.core import runmark as RM
 from harness2.core import tree as HT
 from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec, resolve_proposer
@@ -925,3 +926,55 @@ class UpstreamNoticeTests(unittest.TestCase):
             if "Modified in the noetion/harness2 fork" in p.read_text(encoding="utf-8")
         ]
         self.assertGreaterEqual(len(changed), 10)
+
+
+class SubstratePairGuardTests(unittest.TestCase):
+    """A benchmark that cannot run a substrate must say so before installing anything."""
+
+    def test_lab_refuses_an_agent_cli_substrate_before_cloning_it(self):
+        for name in ("pi", "dsh"):
+            with patch("sys.stdout"), patch("sys.stderr") as err:
+                with self.assertRaises(SystemExit) as ctx:
+                    setup.main(["lab", "--substrate", name, "--dry-run"])
+            self.assertEqual(ctx.exception.code, 1)
+            self.assertIn("oc or cx", " ".join(str(c) for c in err.mock_calls))
+
+    def test_the_adapter_refuses_it_too(self):
+        with self.assertRaises(ValueError):
+            make_adapter("lab", None, "pi")
+
+
+class CustomJudgeOptionalTests(unittest.TestCase):
+    """A custom run with check.py decides its own verdict; judging must not demand a model."""
+
+    def test_judge_cli_does_not_require_a_judge_model_for_custom(self):
+        from harness2.cli import judge
+
+        with tempfile.TemporaryDirectory() as td:
+            with (
+                patch.object(config, "RUNS", Path(td)),
+                patch.object(config, "JUDGE_MODEL", ""),
+                patch.object(config, "SOLVER_MODEL_PI", "p/m"),
+                patch.object(config, "IMPROVER_MODEL", "p/m"),
+                patch("sys.stdout"),
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    judge.main(["--bench", "custom", "--substrate", "pi", "--k", "1"])
+        # SystemExit carries the reason as its code; it got that far, so no judge was demanded
+        self.assertIn("nothing to judge", str(ctx.exception.code))
+        self.assertNotIn("HARNESS2_JUDGE_MODEL", str(ctx.exception.code))
+
+    def test_other_benchmarks_still_require_one(self):
+        from harness2.cli import judge
+
+        with tempfile.TemporaryDirectory() as td:
+            with (
+                patch.object(config, "RUNS", Path(td)),
+                patch.object(config, "JUDGE_MODEL", ""),
+                patch.object(config, "SOLVER_MODEL_CX", "m"),
+                patch.object(config, "IMPROVER_MODEL", "p/m"),
+                patch("sys.stdout"),
+            ):
+                with self.assertRaises(config.ConfigError) as ctx:
+                    judge.main(["--bench", "jb", "--substrate", "cx", "--k", "1"])
+        self.assertIn("HARNESS2_JUDGE_MODEL", str(ctx.exception))

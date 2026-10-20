@@ -51,11 +51,13 @@ connects two levels of recursion while keeping model weights fixed:
   </a>
 </p>
 
-Across three professional benchmarks and four model–harness configurations, a
-single Harness² step improves GLM-5 and Gemini 3.5 Flash over their base
-harnesses, with gains of up to 11.5 points on WorkBuddy-Bench, 4.5 points on
-JobBench, and 11.8 percentage points on LAB's partial pass rate. Increasing the
-task-level recursion budget brings further gains.
+**Upstream paper results**, from the OpenCode and Codex executors. They do not
+describe this fork's additions: across three professional benchmarks and four
+model–harness configurations, a single Harness² step improves GLM-5 and Gemini 3.5
+Flash over their base harnesses, with gains of up to 11.5 points on
+WorkBuddy-Bench, 4.5 points on JobBench, and 11.8 percentage points on LAB's
+partial pass rate. Increasing the task-level recursion budget brings further
+gains.
 
 Upstream's release supports **parallel and sequential recursion**, **OpenCode
 and Codex executors**, and **JobBench, LAB, and WorkBuddy-Bench**; this fork adds
@@ -109,10 +111,12 @@ harness2-demo --output runs/demo --k 2
 The local demo runs both recursion modes with deterministic editors and real
 Python executions. It requires no model credentials.
 
-The custom benchmark with the `pi` or `dsh` executor needs no Google Cloud
-project, no Docker and no OpenCode checkout: one CLI, one provider key, and a
-directory of your own tasks. That path is exercised on macOS as well as Linux.
-LAB and WorkBuddy-Bench keep the requirements below.
+The custom benchmark with the `pi` executor needs no Google Cloud project, no
+Docker and no OpenCode checkout: Node.js, npm, `git` and `uv` (already required to
+install this package), one executor key, and a directory of your own tasks. A
+`dsh` run also installs Pi, which runs the improver. Judging a task that has no
+`check.py` needs a second key for the judge. That path is exercised on macOS as
+well as Linux. LAB and WorkBuddy-Bench keep the requirements below.
 
 For model-backed benchmarks, install **Node.js 20+, the Google Cloud CLI**, and
 the [benchmark dependencies](docs/SETUP.md#requirements). LAB needs Pandoc and
@@ -131,6 +135,10 @@ alternatives, and the [Codex executor](docs/SETUP.md#codex-executor).
 
 The following example installs LAB and runs one task, then evaluates and reports
 its result. Model-backed runs incur API costs; start with a small task selection.
+
+If you came for what this fork adds: `--substrate pi` or `dsh` runs on any benchmark
+below, and the next two sections cover the substrate choice and the
+no-download `custom` benchmark, which is the shortest path to a real run.
 
 ```bash
 harness2-setup lab
@@ -163,15 +171,15 @@ grading.
 ## Executor substrates: Pi and DeepSeek Harness
 
 `--substrate` chooses what runs the task. Four are wired in; `pi` has been run
-through the full recursion on JobBench, and `dsh` through one complete JobBench
-rollout and the custom benchmark:
+through the full refinement loop on one JobBench task, and `dsh` through one
+complete JobBench rollout and the custom benchmark:
 
 | Substrate | CLI | Notes |
 |---|---|---|
 | `oc` | OpenCode | Upstream default; runs from a pinned checkout through bun |
 | `cx` | Codex CLI | Pinned binary under `dependencies/codex` |
 | `pi` | [Pi](https://github.com/earendil-works/pi) | `npm install -g @earendil-works/pi-coding-agent`, or let setup install 1.3.0 into `dependencies/pi` |
-| `dsh` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Setup installs 0.2.1-rc.2 into `dependencies/dsh`; slower per task, see below |
+| `dsh` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Setup installs 0.2.1-rc.2 into `dependencies/dsh`, plus Pi for the improver; slower per task, see below |
 
 ```bash
 harness2-setup jb --substrate pi
@@ -181,28 +189,32 @@ harness2-judge --bench jb --substrate pi --k 1
 ```
 
 `pi` and `dsh` run as coding-agent CLIs in a scratch workspace, not from a
-pinned checkout: each rollout copies the harness to the workspace root, gets an
-empty agent home (`PI_CODING_AGENT_DIR` or `DSH_HOME`) and explicit skill and
-extension flags, so your own configuration never leaks into a run. The
-workspace lives under `HARNESS2_SCRATCH` (default: the system temp directory)
-and is refused if it would sit inside a git checkout, because both agents find
-their project root by walking up to `.git`.
+pinned checkout. Each rollout copies the harness to the workspace root and points
+the agent at an empty home (`PI_CODING_AGENT_DIR` or `DSH_HOME`/`DSH_AGENTS_HOME`),
+so discovery starts from the harness rather than from your own setup -- unless you
+set `HARNESS2_PI_AGENT_DIR`, which deliberately hands Pi an existing directory
+holding saved logins. Pi is given its skills and extensions explicitly; dsh reads
+`.agents/skills/` itself and has its plugins loaded by path. The workspace lives
+under `HARNESS2_SCRATCH` (default: the system temp directory) and is refused if it
+would sit inside a git checkout, because both agents find their project root by
+walking up to `.git`.
 
 Model access is configuration, not code. `HARNESS2_PI_MODEL` and
 `HARNESS2_DSH_MODEL` default to `HARNESS2_SOLVER_MODEL`, and both CLIs read their
 credentials from the provider's environment variable (`OPENCODE_API_KEY`,
-`DEEPSEEK_API_KEY`, ...). A provider that authenticates by saved login instead
+`DEEPSEEK_API_KEY`, ...) -- though DeepSeek's own API is the one route that has
+not been called here, its bare-id mapping being verified from dsh's composed
+configuration instead. A provider that authenticates by saved login instead
 works through `HARNESS2_PI_AGENT_DIR`, which points Pi at an agent directory
 holding that login. Nothing here is tied to a particular vendor; an OpenCode Go
 key and a saved OpenAI Codex login have both been exercised, and any other
 gateway is the first thing to smoke-test.
 
 DeepSeek Harness works an assignment in more, smaller steps than Pi, so it needs
-more wall clock: one JobBench task took 24 minutes and 191 tool calls, against
-6 minutes and 42 for Pi; both wrote the same four files, and on that one task the
-judge scored them differently. Its
-default timeout is 2400 s for that reason; raise it with `--timeout` on the
-benchmark if a task is larger.
+more wall clock: on one JobBench task it took 24 minutes and 191 tool calls,
+against 6 minutes and 42 for Pi; both wrote the same four files. Every substrate
+except Codex has a 2400 s rollout deadline, and the CLI exposes no flag to change
+it, so an unusually large task will reach that limit on dsh first.
 
 Both substrates also validate a proposed harness while it is still a proposal,
 by loading it offline with credentials stripped: Pi exits before its first model
@@ -235,9 +247,12 @@ harness2-judge --bench custom --substrate pi --k 1
 `check.py` is optional and, when present, decides the verdict by exiting 0. With
 no `check.py` and a judge configured, each deliverable is rated against its own
 assignment: the task text plus what the agent produced, never a golden answer.
-With neither, rollouts still run and are reported, and the measurement is absent
-rather than zero. OpenCode and Codex are not supported here, because they need a
-benchmark-owned checkout, render step and credential file.
+Rated output is read as text, so a binary deliverable such as a spreadsheet is
+described to the judge by name and size instead of its contents -- give such a
+task a `check.py`. With neither a check nor a judge, rollouts still run and are
+reported, and the measurement is absent; a run that produced no deliverable at
+all is the one case recorded as zero. OpenCode and Codex are not supported here,
+because they need a benchmark-owned checkout, render step and credential file.
 
 Use several tasks per area. A single task gives the improver one example to
 reason from, and it will write the specifics of that example into the harness;
@@ -248,8 +263,8 @@ assignment only *tells* the agent to stay in its workspace. A vague task invites
 it to look around the machine, and if it reads anything that looks like a verdict
 the harness refuses to proceed rather than let it into the improver's context. Keep
 `HARNESS2_SCRATCH` and `HARNESS2_RUNS_DIR` away from the code you are refining,
-and if you want the boundary enforced rather than requested, that is exactly what
-the in-loop lever is for: an extension or plugin can refuse a read outside the
+and if you want the boundary enforced rather than requested, that is what the
+in-loop lever is for: an extension or plugin you write can refuse a read outside the
 workspace, and the prompt surfaces document how.
 
 ### Carrying a harness between runs

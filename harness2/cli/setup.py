@@ -68,6 +68,12 @@ def main(argv=None):
                     raise RuntimeError(f"Missing {binary}; see README.md")
         if args.benchmark == "wb" and args.substrate in ("pi", "dsh"):
             raise ValueError("WorkBuddy supports --substrate oc or cx only")
+        if args.benchmark == "lab" and args.substrate in ("pi", "dsh"):
+            # The adapter refuses this too, but only after setup has cloned LAB.
+            raise ValueError(
+                f"LAB supports --substrate oc or cx only, got {args.substrate!r}; use "
+                f"--bench jb or --bench custom for that executor"
+            )
         if args.benchmark == "custom":
             if args.substrate not in ("pi", "dsh"):
                 raise ValueError(
