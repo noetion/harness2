@@ -1,9 +1,11 @@
 # Benchmark guides
 
 Complete the [installation and credentials](SETUP.md) first. Each
-benchmark installs separately; install the ones you intend to run. Every command
-below takes `--substrate cx` to use the
-[Codex executor](SETUP.md#codex-executor) instead of OpenCode. Choose the
+benchmark installs separately; install the ones you intend to run. For LAB,
+JobBench and WorkBuddy-Bench, every command below takes `--substrate cx` to use
+the [Codex executor](SETUP.md#codex-executor) instead of OpenCode; `--substrate
+pi` and `--substrate dsh` select the executors this fork adds. Custom runs on
+those two only. Choose the
 recursion mode with `--mode parallel` or `--mode sequential` and the task-level
 recursion budget with `--k`. Keep both identical across the run, judge, and
 report commands.

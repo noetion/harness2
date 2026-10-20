@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harness2"
-version = "0.1.0"
+version = "0.1.0+noetion.1"
 description = "Harness²: Recursive Agent Harnessing for an Open World"
 readme = "README.md"
 license = "Apache-2.0"
@@ -16,6 +16,9 @@ classifiers = [
 ]
 authors = [
     { name = "Google LLC" },
+]
+maintainers = [
+    { name = "noetion" },
 ]
 dependencies = []
 

@@ -1,0 +1,26 @@
+# Credentials and local configuration. The README tells a new user to copy
+# .env.example to .env; that file holds their judge key, so it must never be
+# committable. Upstream shipped no .gitignore, and inheriting that is how a fork
+# ends up with a key in its history.
+.env
+.env.*
+!.env.example
+
+# Run state: rollouts, transcripts, libraries, adopted harnesses.
+runs/
+scratch/
+
+# Installed dependencies (pinned metadata files above this are tracked).
+dependencies/*/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Editor and OS noise
+.DS_Store
+*.log

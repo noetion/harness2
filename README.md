@@ -57,8 +57,9 @@ harnesses, with gains of up to 11.5 points on WorkBuddy-Bench, 4.5 points on
 JobBench, and 11.8 percentage points on LAB's partial pass rate. Increasing the
 task-level recursion budget brings further gains.
 
-The release supports **parallel and sequential recursion**, **OpenCode and
-Codex executors**, and **JobBench, LAB, and WorkBuddy-Bench**.
+Upstream's release supports **parallel and sequential recursion**, **OpenCode
+and Codex executors**, and **JobBench, LAB, and WorkBuddy-Bench**; this fork adds
+two more executors and a fourth benchmark, described below.
 
 ## Video overview
 
@@ -190,13 +191,16 @@ their project root by walking up to `.git`.
 Model access is configuration, not code. `HARNESS2_PI_MODEL` and
 `HARNESS2_DSH_MODEL` default to `HARNESS2_SOLVER_MODEL`, and both CLIs read their
 credentials from the provider's environment variable (`OPENCODE_API_KEY`,
-`DEEPSEEK_API_KEY`, ...). Nothing here is tied to a particular vendor, but only an
-OpenCode Go provider has been exercised end to end, so treat another gateway as
-the first thing to smoke-test.
+`DEEPSEEK_API_KEY`, ...). A provider that authenticates by saved login instead
+works through `HARNESS2_PI_AGENT_DIR`, which points Pi at an agent directory
+holding that login. Nothing here is tied to a particular vendor; an OpenCode Go
+key and a saved OpenAI Codex login have both been exercised, and any other
+gateway is the first thing to smoke-test.
 
 DeepSeek Harness works an assignment in more, smaller steps than Pi, so it needs
 more wall clock: one JobBench task took 24 minutes and 191 tool calls, against
-6 minutes and 42 for Pi, and both produced the same four deliverables. Its
+6 minutes and 42 for Pi; both wrote the same four files, and on that one task the
+judge scored them differently. Its
 default timeout is 2400 s for that reason; raise it with `--timeout` on the
 benchmark if a task is larger.
 
