@@ -1,7 +1,7 @@
 include README.md .env.example
 recursive-include docs *.md
 recursive-include scripts *.py *.sh
-recursive-include harness2/third_party *
+recursive-include third_party *
 recursive-include harness2/seeds *
 include dependencies/README.md dependencies/PINNED.md
 global-exclude __pycache__ *.py[cod] *.log
